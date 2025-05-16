@@ -1,3 +1,6 @@
+# 반드시 설정 변경해야 할 것!!
+    # 15줄: INPUT_CSV, OUTPUT_CSV 설정 변경
+    # 25줄: pararms의 AGE 변경
 import os
 import time
 import csv
@@ -11,14 +14,15 @@ API_KEY = os.getenv('VOTE_API')
 
 # API 엔드포인트 및 파일 경로 설정
 VOTE_API_URL = 'https://open.assembly.go.kr/portal/openapi/nojepdqqaweusdfbi'
-INPUT_CSV = 'C:/Users/1-08/OneDrive/Desktop/DAMF2/Final_PJT/save_bill_ids/data/temp.csv'
-OUTPUT_CSV = 'vote_results_22nd.csv'
+INPUT_CSV = 'C:/Users/1-08/OneDrive/Desktop/DAMF2/Final_PJT/save_bill_ids/data/passed_bill_ids_21.csv'
+OUTPUT_CSV = 'data/vote_results_21.csv'
 
 def load_bill_ids(file_path: str) -> list:
     """CSV 파일에서 bill_id 목록 불러오기"""
     with open(file_path, encoding='utf-8') as f:
         return [row['bill_id'] for row in csv.DictReader(f)]
 
+# AGE 변경 필수!!!!!
 def fetch_vote_results(bill_id: str) -> list:
     """단일 의안에 대한 표결 결과 가져오기"""
     params = {
@@ -27,7 +31,7 @@ def fetch_vote_results(bill_id: str) -> list:
         'pIndex': 1,
         'pSize': 100,
         'BILL_ID': bill_id,
-        'AGE': '22'
+        'AGE': '21'
     }
     try:
         response = requests.get(VOTE_API_URL, params=params, timeout=10)

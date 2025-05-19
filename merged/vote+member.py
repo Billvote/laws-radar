@@ -53,17 +53,43 @@
 #==================================================================================
 import pandas as pd
 
-# 국회의원 기본정보 불러오기
-df_members = pd.read_csv("/c/Users/1-16/OneDrive/바탕 화면/project/laws-radar/member_info/data/member_22.csv")  # 예: columns=['이름', '소속정당', '지역구', ...]
+# CSV 파일 불러오기
+df_members = pd.read_csv("~/OneDrive/바탕 화면/project/laws-radar/member_info/data/member_22.csv")       # 이름, 정당, 지역구 등
+df_votes = pd.read_csv("~/OneDrive/바탕 화면/project/laws-radar/result_vote/data/vote_results_22.csv")         # 의안ID, 의안명, 의원명, 투표결과 등
 
-# 의안별 투표결과 불러오기
-df_votes = pd.read_csv("/c/Users/1-16/OneDrive/바탕 화면/project/laws-radar/result_vote/data/의안_투표결과.csv")  # 예: columns=['의안ID', '의안명', '이름', '투표결과']
+# print(df_members.columns)
+# print(df_votes.columns)
 
-# 병합: 의원 이름을 기준으로 결합
-df_merged = pd.merge(df_votes, df_members, on='이름', how='left')
+# 컬럼 공백 제거
+df_votes.columns = df_votes.columns.str.strip()
+df_members.columns = df_members.columns.str.strip()
+
+# 병합: 의원 이름 기준 (컬럼명이 다를 경우 left_on / right_on 사용)
+df_merged = pd.merge(
+    df_votes,
+    df_members,
+    left_on="HG_NM",     # 투표결과 파일의 의원 이름 컬럼
+    right_on="name",     # 기본정보 파일의 의원 이름 컬럼
+    how="left"
+)
+
+# 필요한 열만 추출
+df_selected = df_merged[[
+    "HG_NM",            # 의원 이름
+    "POLY_NM",          # 정당
+    "RESULT_VOTE_MOD",  # 찬성/반대
+    "BILL_NAME",        # 의안 이름
+    "partyName",             # 의원 기본정보에서 가져온 정당 (예시)
+    "electoralDistrict",             # 의원 기본정보에서 가져온 지역구 (예시)
+    "gender"
+]]
+
+
 
 # 결과 확인
-print(df_merged.head())
+print(df_selected.head())
 
 # 결과 저장
-df_merged.to_csv("~ 파일 경로/의원_투표결과_병합.csv", index=False)
+df_merged.to_csv("~/OneDrive/바탕 화면/project/laws-radar/merged/data/의원+투표결과.csv", index=False)
+
+

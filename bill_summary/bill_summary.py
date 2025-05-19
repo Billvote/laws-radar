@@ -2,9 +2,11 @@ import pandas as pd
 import requests
 from bs4 import BeautifulSoup
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import csv
+import re
 
 # 1. CSV 파일에서 BILL_URL 리스트 추출 (중복 제거)
-csv_path = r'C:/Users/1-02/Desktop/DAMF2/laws-radar/result_vote/data/vote_results_22.csv'
+csv_path = r'C:/Users/1-02/Desktop/DAMF2/laws-radar/result_vote/data/vote_results_20.csv'
 try:
     df = pd.read_csv(csv_path)
     urls = df['BILL_URL'].dropna().unique().tolist()
@@ -14,7 +16,48 @@ except Exception as e:
 
 results = []
 
-# 2. 크롤링 함수 (요소 없으면 NaN으로 처리)
+# 2. 텍스트 정제 함수 (접두사+불필요한 조사 등까지 확장 제거)
+def clean_text(text):
+    if not text:
+        return text
+    text = text.strip('"').strip()
+    text = text.replace(',', ' ')
+    prefixes = [
+        "대안의 제안이유 및 주요내용",
+        "대안의 제안이유",
+        "제안이유 및 주요내용",
+        "제안이유 및 주요 내용",
+        "제안이유, 주요내용",
+        "제안이유, 주요 내용",
+        "제안이유 및",
+        "제안이유",
+        "■ 제안이유 및 주요내용",
+        "■ 제안이유 및 주요 내용",
+        "■ 제안이유, 주요내용",
+        "■ 제안이유, 주요 내용",
+        "■ 제안이유 및",
+        "■ 제안이유",
+        "※ 제안이유 및 주요내용",
+        "※ 제안이유",
+        "◇ 제안이유 및 주요내용",
+        "◇ 제안이유",
+        "▲ 제안이유 및 주요내용",
+        "▲ 제안이유",
+        "△ 제안이유 및 주요내용",
+        "△ 제안이유",
+        "제안 이유 및 주요내용",
+        "제안 이유",
+    ]
+    # 접두사 뒤에 붙을 수 있는 불필요한 것들(공백, :, . 등, 조사)
+    suffix_pattern = r'(?:[\s:：\-–~]*)(?:입니다|임|임\.|임니다|임니|이다|다|임니다)?(?:[\s\.:：\-–~]*)(?:\n)?'
+    # 전체 패턴: 맨 앞에서만 제거
+    pattern = r'^(?:' + '|'.join(re.escape(prefix) for prefix in prefixes) + r')' + suffix_pattern
+    text = re.sub(pattern, '', text, flags=re.MULTILINE)
+    # 연속 공백 정리
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
+
+# 3. 크롤링 함수 (요소 없으면 NaN으로 처리)
 def crawl(url):
     headers = {'User-Agent': 'Mozilla/5.0'}
     try:
@@ -22,19 +65,17 @@ def crawl(url):
         response.raise_for_status()
         soup = BeautifulSoup(response.text, 'html.parser')
         element = soup.select_one("div#summaryContentDiv.textType02")
-        
         if element:
             summary_text = element.get_text(separator=' ', strip=True)
+            summary_text = clean_text(summary_text)
         else:
-            summary_text = pd.NA  # 요소 없으면 NaN 할당
-            
+            summary_text = pd.NA
         return {'url': url, 'summary': summary_text}
-        
     except Exception as e:
         print(f"에러 발생: {url}\n에러 내용: {e}")
         return {'url': url, 'summary': f'ERROR: {str(e)}'}
 
-# 3. 멀티스레드 크롤링 (최대 20개 동시 요청)
+# 4. 멀티스레드 크롤링 (최대 20개 동시 요청)
 with ThreadPoolExecutor(max_workers=20) as executor:
     futures = [executor.submit(crawl, url) for url in urls]
     for idx, future in enumerate(as_completed(futures), 1):
@@ -42,19 +83,19 @@ with ThreadPoolExecutor(max_workers=20) as executor:
         print(f"[{idx}/{len(urls)}] 완료: {result['url']}")
         results.append(result)
 
-# 4. 결과 DataFrame 생성
+# 5. 결과 DataFrame 생성
 result_df = pd.DataFrame(results)
 
-# 5. 중복 URL 병합 (NaN은 제외하고 합침)
+# 6. 중복 URL 병합 (NaN은 제외하고 합침)
 merged_df = result_df.groupby('url', as_index=False)['summary'].agg(
     lambda x: ' / '.join([str(i) for i in x if pd.notna(i)])
 )
 
-# 6. NaN 개수 계산
+# 7. NaN 개수 계산
 null_count = result_df['summary'].isna().sum()
 print(f"\n⚠️ 요소를 찾지 못한 URL 수: {null_count}개")
 
-# 7. 결과 저장
+# 8. 결과 저장 (큰따옴표 없이)
 output_path = r'C:/Users/1-02/Desktop/DAMF2/laws-radar/bill_summary/data/bill_summary.csv'
-merged_df.to_csv(output_path, encoding='utf-8-sig', index=False)
+merged_df.to_csv(output_path, encoding='utf-8-sig', index=False, quoting=csv.QUOTE_NONE, escapechar='\\')
 print("\n✅ 크롤링 및 병합 완료! bill_summary.csv 파일이 생성되었습니다.")

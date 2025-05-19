@@ -1,9 +1,10 @@
-import pandas as pd
+﻿import pandas as pd
 import requests
 from bs4 import BeautifulSoup
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import csv
 import re
+import time
 
 # 1. CSV 파일에서 BILL_URL 리스트 추출 (중복 제거)
 csv_path = r'C:/Users/1-02/Desktop/DAMF2/laws-radar/result_vote/data/vote_results_20.csv'
@@ -16,21 +17,16 @@ except Exception as e:
 
 results = []
 
-# 2. 텍스트 정제 함수 (접두사+불필요한 조사 등까지 확장 제거)
+# 2. 텍스트 정제 함수 (유니코드 특수문자까지 진단/제거)
 def clean_text(text):
     if not text:
         return text
+    # 모든 유니코드 공백/제어문자를 일반 공백으로 변환
+    text = re.sub(r'[\u200b\u200c\u200d\ufeff\xa0\r\n\t]', ' ', text)
     text = text.strip('"').strip()
-    text = text.replace(',', ' ')
-    prefixes = [
-        "대안의 제안이유 및 주요내용",
-        "대안의 제안이유",
-        "제안이유 및 주요내용",
-        "제안이유 및 주요 내용",
-        "제안이유, 주요내용",
-        "제안이유, 주요 내용",
-        "제안이유 및",
-        "제안이유",
+    prefixes = sorted([
+        "■ 대안의 제안이유 및 주요내용",
+        "■ 대안의 제안이유",
         "■ 제안이유 및 주요내용",
         "■ 제안이유 및 주요 내용",
         "■ 제안이유, 주요내용",
@@ -45,35 +41,47 @@ def clean_text(text):
         "▲ 제안이유",
         "△ 제안이유 및 주요내용",
         "△ 제안이유",
+        "대안의 제안이유 및 주요내용",
+        "대안의 제안이유",
+        "제안이유 및 주요내용",
+        "제안이유 및 주요 내용",
+        "제안이유, 주요내용",
+        "제안이유, 주요 내용",
+        "제안이유 및",
+        "제안이유",
         "제안 이유 및 주요내용",
         "제안 이유",
-    ]
-    # 접두사 뒤에 붙을 수 있는 불필요한 것들(공백, :, . 등, 조사)
-    suffix_pattern = r'(?:[\s:：\-–~]*)(?:입니다|임|임\.|임니다|임니|이다|다|임니다)?(?:[\s\.:：\-–~]*)(?:\n)?'
-    # 전체 패턴: 맨 앞에서만 제거
-    pattern = r'^(?:' + '|'.join(re.escape(prefix) for prefix in prefixes) + r')' + suffix_pattern
-    text = re.sub(pattern, '', text, flags=re.MULTILINE)
-    # 연속 공백 정리
+    ], key=len, reverse=True)
+    # 콤마 뒤에 유니코드 공백/제어문자가 있든 없든 인식
+    suffix_pattern = r'(?:[\s\u200b\u200c\u200d\ufeff\xa0\r\n\t:：\-–~,，]*)(?:입니다|임|임\.|임니다|임니|이다|다|임니다)?(?:[\s\u200b\u200c\u200d\ufeff\xa0\r\n\t\.:：\-–~,，]*)(?:\n)?'
+    pattern = r'(^|,[\s\u200b\u200c\u200d\ufeff\xa0\r\n\t]*)(' + '|'.join(re.escape(prefix) for prefix in prefixes) + r')' + suffix_pattern
+    text = re.sub(pattern, r'\1', text, flags=re.MULTILINE)
+    text = text.replace(',', ' ')
     text = re.sub(r'\s+', ' ', text).strip()
     return text
 
-# 3. 크롤링 함수 (요소 없으면 NaN으로 처리)
-def crawl(url):
+# 3. 크롤링 함수 (재시도 로직 포함)
+def crawl(url, max_retries=3, timeout=15):
     headers = {'User-Agent': 'Mozilla/5.0'}
-    try:
-        response = requests.get(url, headers=headers, timeout=5)
-        response.raise_for_status()
-        soup = BeautifulSoup(response.text, 'html.parser')
-        element = soup.select_one("div#summaryContentDiv.textType02")
-        if element:
-            summary_text = element.get_text(separator=' ', strip=True)
-            summary_text = clean_text(summary_text)
-        else:
-            summary_text = pd.NA
-        return {'url': url, 'summary': summary_text}
-    except Exception as e:
-        print(f"에러 발생: {url}\n에러 내용: {e}")
-        return {'url': url, 'summary': f'ERROR: {str(e)}'}
+    for attempt in range(1, max_retries + 1):
+        try:
+            response = requests.get(url, headers=headers, timeout=timeout)
+            response.raise_for_status()
+            soup = BeautifulSoup(response.text, 'html.parser')
+            element = soup.select_one("div#summaryContentDiv.textType02")
+            if element:
+                summary_text = element.get_text(separator=' ', strip=True)
+                summary_text = clean_text(summary_text)
+            else:
+                summary_text = pd.NA
+            return {'url': url, 'summary': summary_text}
+        except Exception as e:
+            if attempt < max_retries:
+                print(f"⏳ 재시도 {attempt}/{max_retries} - {url}")
+                time.sleep(2)
+            else:
+                print(f"에러 발생: {url}\n에러 내용: {e}")
+                return {'url': url, 'summary': f'ERROR: {str(e)}'}
 
 # 4. 멀티스레드 크롤링 (최대 20개 동시 요청)
 with ThreadPoolExecutor(max_workers=20) as executor:

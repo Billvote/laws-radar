@@ -14,8 +14,8 @@ API_KEY = os.getenv('VOTE_API')
 
 # API 엔드포인트 및 파일 경로 설정
 VOTE_API_URL = 'https://open.assembly.go.kr/portal/openapi/nojepdqqaweusdfbi'
-INPUT_CSV = 'C:/Users/1-08/OneDrive/Desktop/DAMF2/Final_PJT/save_bill_ids/data/passed_bill_ids_20.csv'
-OUTPUT_CSV = 'data/vote_results_20.csv'
+INPUT_CSV = 'C:/Users/1-08/OneDrive/Desktop/DAMF2/Final_PJT/save_bill_ids/data/passed_bill_ids_21.csv'
+OUTPUT_CSV = 'data/vote_results_21(1).csv'
 
 def load_bill_ids(file_path: str) -> list:
     """CSV 파일에서 bill_id 목록 불러오기"""
@@ -31,7 +31,7 @@ def fetch_vote_results(bill_id: str) -> list:
         'pIndex': 1,
         'pSize': 100,
         'BILL_ID': bill_id,
-        'AGE': '20'
+        'AGE': '21'
     }
     try:
         response = requests.get(VOTE_API_URL, params=params, timeout=10)
@@ -55,7 +55,8 @@ def collect_vote_data(bill_ids: list) -> pd.DataFrame:
 
     df = pd.DataFrame(all_votes)
     columns = ['AGE', 'HG_NM', 'POLY_NM', 'RESULT_VOTE_MOD', 'RESULT_VOTE',
-               'BILL_ID', 'BILL_NAME', 'VOTE_DATE', 'BILL_URL']
+               'BILL_ID', 'BILL_NAME', 'VOTE_DATE', 'BILL_NO', 'BILL_URL']
+    
     return df[[col for col in columns if col in df.columns]]
 
 def save_to_csv(df: pd.DataFrame, filename: str):

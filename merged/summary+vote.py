@@ -38,7 +38,7 @@ merged_df = merged_df[['BILL_NAME', 'BILL_NO', 'summary']]
 print(merged_df.head())
 
 # 4) 병합 결과 저장
-output_path = os.path.join(base_dir, 'merged/data/vote+summary_22.csv')
+output_path = os.path.join(base_dir, 'merged/data/summary+vote_22.csv')
 os.makedirs(os.path.dirname(output_path), exist_ok=True)  # 폴더 없으면 생성
 merged_df.to_csv(output_path, index=False, encoding='utf-8-sig')
 print(f"\n병합된 데이터 저장 완료: {output_path}")

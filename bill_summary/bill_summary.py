@@ -1,4 +1,4 @@
-﻿import pandas as pd
+import pandas as pd
 import requests
 from bs4 import BeautifulSoup
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -7,7 +7,7 @@ import re
 import time
 
 # 1. CSV 파일에서 BILL_URL 리스트 추출 (중복 제거)
-csv_path = r'C:/Users/1-02/Desktop/DAMF2/laws-radar/result_vote/data/vote_results_20.csv'
+csv_path = r'C:/Users/1-02/Desktop/DAMF2/laws-radar/result_vote/data/vote_results_22.csv'
 try:
     df = pd.read_csv(csv_path)
     urls = df['BILL_URL'].dropna().unique().tolist()
@@ -17,46 +17,47 @@ except Exception as e:
 
 results = []
 
-# 2. 텍스트 정제 함수 (유니코드 특수문자까지 진단/제거)
+# 2. 텍스트 정제 함수 (접두사 어디에 있든 제거)
 def clean_text(text):
     if not text:
         return text
-    # 모든 유니코드 공백/제어문자를 일반 공백으로 변환
+    # 유니코드 공백 및 제어 문자 제거
     text = re.sub(r'[\u200b\u200c\u200d\ufeff\xa0\r\n\t]', ' ', text)
     text = text.strip('"').strip()
-    prefixes = sorted([
-        "■ 대안의 제안이유 및 주요내용",
-        "■ 대안의 제안이유",
-        "■ 제안이유 및 주요내용",
-        "■ 제안이유 및 주요 내용",
-        "■ 제안이유, 주요내용",
-        "■ 제안이유, 주요 내용",
-        "■ 제안이유 및",
-        "■ 제안이유",
-        "※ 제안이유 및 주요내용",
-        "※ 제안이유",
-        "◇ 제안이유 및 주요내용",
-        "◇ 제안이유",
-        "▲ 제안이유 및 주요내용",
-        "▲ 제안이유",
-        "△ 제안이유 및 주요내용",
-        "△ 제안이유",
-        "대안의 제안이유 및 주요내용",
-        "대안의 제안이유",
-        "제안이유 및 주요내용",
-        "제안이유 및 주요 내용",
-        "제안이유, 주요내용",
-        "제안이유, 주요 내용",
-        "제안이유 및",
-        "제안이유",
-        "제안 이유 및 주요내용",
-        "제안 이유",
-    ], key=len, reverse=True)
-    # 콤마 뒤에 유니코드 공백/제어문자가 있든 없든 인식
-    suffix_pattern = r'(?:[\s\u200b\u200c\u200d\ufeff\xa0\r\n\t:：\-–~,，]*)(?:입니다|임|임\.|임니다|임니|이다|다|임니다)?(?:[\s\u200b\u200c\u200d\ufeff\xa0\r\n\t\.:：\-–~,，]*)(?:\n)?'
-    pattern = r'(^|,[\s\u200b\u200c\u200d\ufeff\xa0\r\n\t]*)(' + '|'.join(re.escape(prefix) for prefix in prefixes) + r')' + suffix_pattern
-    text = re.sub(pattern, r'\1', text, flags=re.MULTILINE)
+    # 쉼표 제거
     text = text.replace(',', ' ')
+    # 접두사 패턴 (긴 것부터, 문장 전체에서 등장하면 모두 제거)
+    prefixes = [
+        r'■\s*대안의\s*제안이유\s*및\s*주요내용',
+        r'■\s*대안의\s*제안이유',
+        r'■\s*제안이유\s*및\s*주요내용',
+        r'■\s*제안이유\s*및\s*주요\s*내용',
+        r'■\s*제안이유\s*,\s*주요내용',
+        r'■\s*제안이유\s*,\s*주요\s*내용',
+        r'■\s*제안이유\s*및',
+        r'■\s*제안이유',
+        r'※\s*제안이유\s*및\s*주요내용',
+        r'※\s*제안이유',
+        r'◇\s*제안이유\s*및\s*주요내용',
+        r'◇\s*제안이유',
+        r'▲\s*제안이유\s*및\s*주요내용',
+        r'▲\s*제안이유',
+        r'△\s*제안이유\s*및\s*주요내용',
+        r'△\s*제안이유',
+        r'대안의\s*제안이유\s*및\s*주요내용',
+        r'대안의\s*제안이유',
+        r'제안이유\s*및\s*주요\s*내용',
+        r'제안이유\s*,\s*주요내용',
+        r'제안이유\s*,\s*주요\s*내용',
+        r'제안이유\s*및\s*주요내용',
+        r'제안이유\s*및',
+        r'제안\s*이유\s*및\s*주요내용',
+        r'제안\s*이유',
+        r'제안이유'
+    ]
+    prefixes = sorted(prefixes, key=len, reverse=True)
+    for prefix in prefixes:
+        text = re.sub(prefix, '', text, flags=re.IGNORECASE)
     text = re.sub(r'\s+', ' ', text).strip()
     return text
 
@@ -83,27 +84,38 @@ def crawl(url, max_retries=3, timeout=15):
                 print(f"에러 발생: {url}\n에러 내용: {e}")
                 return {'url': url, 'summary': f'ERROR: {str(e)}'}
 
-# 4. 멀티스레드 크롤링 (최대 20개 동시 요청)
+# 4. 크롤링 및 직접 텍스트 분리 처리
+def process_url(url):
+    # 쉼표로 URL과 텍스트가 같이 있는 경우 분리
+    if ',' in url:
+        url_part, text_part = url.split(',', 1)
+        url_part = url_part.strip()
+        summary_text = clean_text(text_part)
+        return {'url': url_part, 'summary': summary_text}
+    else:
+        return crawl(url)
+
+# 5. 멀티스레드 크롤링 (최대 20개 동시 요청)
 with ThreadPoolExecutor(max_workers=20) as executor:
-    futures = [executor.submit(crawl, url) for url in urls]
+    futures = [executor.submit(process_url, url) for url in urls]
     for idx, future in enumerate(as_completed(futures), 1):
         result = future.result()
         print(f"[{idx}/{len(urls)}] 완료: {result['url']}")
         results.append(result)
 
-# 5. 결과 DataFrame 생성
+# 6. 결과 DataFrame 생성
 result_df = pd.DataFrame(results)
 
-# 6. 중복 URL 병합 (NaN은 제외하고 합침)
+# 7. 중복 URL 병합 (NaN은 제외하고 합침)
 merged_df = result_df.groupby('url', as_index=False)['summary'].agg(
     lambda x: ' / '.join([str(i) for i in x if pd.notna(i)])
 )
 
-# 7. NaN 개수 계산
+# 8. NaN 개수 계산
 null_count = result_df['summary'].isna().sum()
 print(f"\n⚠️ 요소를 찾지 못한 URL 수: {null_count}개")
 
-# 8. 결과 저장 (큰따옴표 없이)
+# 9. 결과 저장 (큰따옴표 없이)
 output_path = r'C:/Users/1-02/Desktop/DAMF2/laws-radar/bill_summary/data/bill_summary.csv'
 merged_df.to_csv(output_path, encoding='utf-8-sig', index=False, quoting=csv.QUOTE_NONE, escapechar='\\')
 print("\n✅ 크롤링 및 병합 완료! bill_summary.csv 파일이 생성되었습니다.")

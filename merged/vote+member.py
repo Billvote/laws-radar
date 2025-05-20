@@ -52,6 +52,7 @@
 
 #==================================================================================
 import pandas as pd
+from collections import defaultdict
 
 # CSV 파일 불러오기
 df_members = pd.read_csv("~/OneDrive/바탕 화면/project/laws-radar/member_info/data/member_22.csv")       # 이름, 정당, 지역구 등
@@ -76,20 +77,46 @@ df_merged = pd.merge(
 # 필요한 열만 추출
 df_selected = df_merged[[
     "HG_NM",            # 의원 이름
-    "POLY_NM",          # 정당
+    # "POLY_NM",          # 정당
     "RESULT_VOTE_MOD",  # 찬성/반대
     "BILL_NAME",        # 의안 이름
-    "partyName",             # 의원 기본정보에서 가져온 정당 (예시)
-    "electoralDistrict",             # 의원 기본정보에서 가져온 지역구 (예시)
+    "partyName",             # 정당 
+    "electoralDistrict",             #지역구
     "gender"
 ]]
-
-
 
 # 결과 확인
 print(df_selected.head())
 
-# 결과 저장
-df_merged.to_csv("~/OneDrive/바탕 화면/project/laws-radar/merged/data/의원+투표결과.csv", index=False)
+# BILL_NAME + 찬반별로 HG_NM, gender 등 분류
+result = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
+
+for _, row in df_selected.iterrows():
+    bill = row["BILL_NAME"]
+    vote = row["RESULT_VOTE_MOD"]
+    
+    result[bill][vote]["HG_NM"].append(row["HG_NM"])
+    result[bill][vote]["gender"].append(row["gender"])
+    result[bill][vote]["partyName"].append(row["partyName"])
+    result[bill][vote]["electoralDistrict"].append(row["electoralDistrict"])
+
+# 예시 출력: 상위 3개 의안만 출력
+for bill_name, vote_data in list(result.items())[:3]:
+    print(f"\n[의안명] {bill_name}")
+    for vote_type, data in vote_data.items():
+        print(f"  - {vote_type}")
+        print(f"    * 의원: {data['HG_NM']}")
+        print(f"    * 성별: {data['gender']}")
+        print(f"    * 정당: {data['partyName']}")
+        print(f"    * 지역구: {data['electoralDistrict']}")
+
+# (선택) 원래 병합 데이터 저장
+df_selected.to_csv("~/OneDrive/바탕 화면/project/laws-radar/merged/data/member_columns.csv", index=False)
+
+# # 결과 확인
+# print(df_selected.head())
+
+# # 결과 저장
+# df_selected.to_csv("~/OneDrive/바탕 화면/project/laws-radar/merged/data/vote+member.csv", index=False)
 
 

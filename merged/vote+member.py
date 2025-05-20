@@ -74,19 +74,22 @@ df_merged = pd.merge(
     how="left"
 )
 
-# 필요한 열만 추출
-df_selected = df_merged[[
-    "HG_NM",            # 의원 이름
-    # "POLY_NM",          # 정당
-    "RESULT_VOTE_MOD",  # 찬성/반대
-    "BILL_NAME",        # 의안 이름
-    "partyName",             # 정당 
-    "electoralDistrict",             #지역구
-    "gender"
-]]
+# # 필요한 열만 추출
+# df_selected = df_merged[[
+#     "HG_NM",            # 의원 이름
+#     # "POLY_NM",          # 정당
+#     "RESULT_VOTE_MOD",  # 찬성/반대
+#     "BILL_NAME",        # 의안 이름
+#     "partyName",             # 정당 
+#     "electoralDistrict",             #지역구
+#     "gender"
+# ]]
+df_selected = df_merged.dropna(subset=["RESULT_VOTE_MOD", "BILL_NAME", "partyName", "gender"])
 
-# 결과 확인
-print(df_selected.head())
+
+
+# # 결과 확인
+# print(df_selected.head())
 
 # BILL_NAME + 찬반별로 HG_NM, gender 등 분류
 result = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
@@ -100,18 +103,74 @@ for _, row in df_selected.iterrows():
     result[bill][vote]["partyName"].append(row["partyName"])
     result[bill][vote]["electoralDistrict"].append(row["electoralDistrict"])
 
-# 예시 출력: 상위 3개 의안만 출력
-for bill_name, vote_data in list(result.items())[:3]:
-    print(f"\n[의안명] {bill_name}")
-    for vote_type, data in vote_data.items():
-        print(f"  - {vote_type}")
-        print(f"    * 의원: {data['HG_NM']}")
-        print(f"    * 성별: {data['gender']}")
-        print(f"    * 정당: {data['partyName']}")
-        print(f"    * 지역구: {data['electoralDistrict']}")
+    # 1. 찬반 여부(RESULT_VOTE_MOD) 개수 세기
+vote_counts = df_selected.groupby(["BILL_NAME", "RESULT_VOTE_MOD"]).size().unstack(fill_value=0)
+
+# 2. 정당별 개수
+party_counts = df_selected.groupby(["BILL_NAME", "partyName"]).size().unstack(fill_value=0)
+
+# 3. 성별별 개수
+gender_counts = df_selected.groupby(["BILL_NAME", "gender"]).size().unstack(fill_value=0)
+
+# 4. 의안별 정렬 (찬성+반대 합 기준 정렬)
+sorted_vote_counts = vote_counts.copy()
+sorted_vote_counts["total"] = sorted_vote_counts.sum(axis=1)
+sorted_vote_counts = sorted_vote_counts.sort_values(by="total", ascending=False)
+
+# 의안명을 인덱스로 갖는 vote_counts, party_counts, gender_counts 병합
+combined = vote_counts.copy()
+
+# 병합 시 suffix로 구분
+combined = combined.merge(party_counts, how="outer", left_index=True, right_index=True, suffixes=("", "_party"))
+combined = combined.merge(gender_counts, how="outer", left_index=True, right_index=True, suffixes=("", "_gender"))
+
+# NaN 값은 0으로 채움
+combined = combined.fillna(0).astype(int)
+
+# 저장 경로 지정
+output_path = "C:/Users/1-16/OneDrive/바탕 화면/project/laws-radar/merged/data/combined_counts.csv"
+
+# CSV로 저장
+combined.to_csv(output_path, encoding="utf-8-sig")  # Excel 호환용
+print(f"파일이 저장되었습니다: {output_path}")
+
+
+with open(output_path, "w", encoding="utf-8") as f:
+    for bill_name in sorted_vote_counts.index:
+        f.write(f"\n[의안명] {bill_name}\n")
+
+        f.write(" - 투표 결과:\n")
+        if bill_name in vote_counts.index:
+            f.write(str(vote_counts.loc[bill_name]) + "\n")
+        else:
+            f.write("데이터 없음\n")
+
+        f.write(" - 정당 분포:\n")
+        if bill_name in party_counts.index:
+            f.write(str(party_counts.loc[bill_name]) + "\n")
+        else:
+            f.write("데이터 없음\n")
+
+        f.write(" - 성별 분포:\n")
+        if bill_name in gender_counts.index:
+            f.write(str(gender_counts.loc[bill_name]) + "\n")
+        else:
+            f.write("데이터 없음\n")
+        print("데이터 없음")
+
+
+# # 예시 출력: 상위 3개 의안만 출력
+# for bill_name, vote_data in list(result.items())[:3]:
+#     print(f"\n[의안명] {bill_name}")
+#     for vote_type, data in vote_data.items():
+#         print(f"  - {vote_type}")
+#         print(f"    * 의원: {data['HG_NM']}")
+#         print(f"    * 성별: {data['gender']}")
+#         print(f"    * 정당: {data['partyName']}")
+#         print(f"    * 지역구: {data['electoralDistrict']}")
 
 # (선택) 원래 병합 데이터 저장
-df_selected.to_csv("~/OneDrive/바탕 화면/project/laws-radar/merged/data/member_columns.csv", index=False)
+# df_selected.to_csv("~/OneDrive/바탕 화면/project/laws-radar/merged/data/member_count1.csv", index=False)
 
 # # 결과 확인
 # print(df_selected.head())

@@ -53,87 +53,121 @@
 #==================================================================================
 import pandas as pd
 from collections import defaultdict
-from pathlib import Path
-from collections import Counter
-
-# 홈 디렉토리를 기준으로 경로 지정
-base_dir = Path.home() /"Desktop" / "project" / "laws-radar"
-save_dir = base_dir /"merged" / "data"
-
-# 파일 경로 정의
-members_path = base_dir / "member_info" / "data" / "member_22.csv"
-votes_path = base_dir / "result_vote" / "data" / "vote_results_22.csv"
-
-# 저장할 파일 경로 지정
-output_path = save_dir / "member+summary.csv"
 
 # CSV 파일 불러오기
-df_members = pd.read_csv(members_path)
-df_votes = pd.read_csv(votes_path)
+df_members = pd.read_csv("~/OneDrive/바탕 화면/project/laws-radar/member_info/data/member_22.csv")       # 이름, 정당, 지역구 등
+df_votes = pd.read_csv("~/OneDrive/바탕 화면/project/laws-radar/result_vote/data/vote_results_22.csv")         # 의안ID, 의안명, 의원명, 투표결과 등
 
-print(df_members.columns)
-print(df_votes.columns)
-
-# 확인
-# print(df_members.head())
+# print(df_members.columns)
+# print(df_votes.columns)
 
 # 컬럼 공백 제거
 df_votes.columns = df_votes.columns.str.strip()
 df_members.columns = df_members.columns.str.strip()
 
+# 병합: 의원 이름 기준 (컬럼명이 다를 경우 left_on / right_on 사용)
 df_merged = pd.merge(
     df_votes,
     df_members,
-    left_on='HG_NM',
-    right_on='name',
-    how='left'
+    left_on="HG_NM",     # 투표결과 파일의 의원 이름 컬럼
+    right_on="name",     # 기본정보 파일의 의원 이름 컬럼
+    how="left"
 )
 
-
-# 필요한 열만 추출
-df_selected = df_merged[[
-    "HG_NM",            # 의원 이름
-    "RESULT_VOTE_MOD",  # 찬성/반대
-    "BILL_NAME",        # 의안 이름
-    "partyName",             # 정당 
-    "electoralDistrict",             #지역구
-    "gender"
-]]
-df_selected = df_selected.dropna(subset=["RESULT_VOTE_MOD", "BILL_NAME", "partyName", "gender"])
-
-df_summary = df_selected.groupby(
-    ["BILL_NAME", "RESULT_VOTE_MOD"]
-).agg(
-    members = ("HG_NM", list),
-    parties = ("partyName", list),
-    genders = ("gender", list),
-    districts = ("electoralDistrict", list),
-).reset_index()
+# # 필요한 열만 추출
+# df_selected = df_merged[[
+#     "HG_NM",            # 의원 이름
+#     # "POLY_NM",          # 정당
+#     "RESULT_VOTE_MOD",  # 찬성/반대
+#     "BILL_NAME",        # 의안 이름
+#     "partyName",             # 정당 
+#     "electoralDistrict",             #지역구
+#     "gender"
+# ]]
+df_selected = df_merged.dropna(subset=["RESULT_VOTE_MOD", "BILL_NAME", "partyName", "gender"])
 
 
-def count_list(x):
-    return dict(Counter(x))
 
-df_summary_counts = df_selected.groupby(
-    ["BILL_NAME", "RESULT_VOTE_MOD"]
-).agg(
-    members = ("HG_NM", count_list),
-    parties = ("partyName", count_list),
-    genders = ("gender", count_list),
-    districts = ("electoralDistrict", count_list),
-).reset_index()
+# # 결과 확인
+# print(df_selected.head())
 
-print(df_summary_counts.head())
+# BILL_NAME + 찬반별로 HG_NM, gender 등 분류
+result = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
 
-# CSV 저장 (인덱스 없이, UTF-8-sig 인코딩)
-df_summary_counts.to_csv(output_path, index=False, encoding="utf-8-sig")
+for _, row in df_selected.iterrows():
+    bill = row["BILL_NAME"]
+    vote = row["RESULT_VOTE_MOD"]
+    
+    result[bill][vote]["HG_NM"].append(row["HG_NM"])
+    result[bill][vote]["gender"].append(row["gender"])
+    result[bill][vote]["partyName"].append(row["partyName"])
+    result[bill][vote]["electoralDistrict"].append(row["electoralDistrict"])
+
+    # 1. 찬반 여부(RESULT_VOTE_MOD) 개수 세기
+vote_counts = df_selected.groupby(["BILL_NAME", "RESULT_VOTE_MOD"]).size().unstack(fill_value=0)
+
+# 2. 정당별 개수
+party_counts = df_selected.groupby(["BILL_NAME", "partyName"]).size().unstack(fill_value=0)
+
+# 3. 성별별 개수
+gender_counts = df_selected.groupby(["BILL_NAME", "gender"]).size().unstack(fill_value=0)
+
+# 4. 의안별 정렬 (찬성+반대 합 기준 정렬)
+sorted_vote_counts = vote_counts.copy()
+sorted_vote_counts["total"] = sorted_vote_counts.sum(axis=1)
+sorted_vote_counts = sorted_vote_counts.sort_values(by="total", ascending=False)
+
+# 의안명을 인덱스로 갖는 vote_counts, party_counts, gender_counts 병합
+combined = vote_counts.copy()
+
+# 병합 시 suffix로 구분
+combined = combined.merge(party_counts, how="outer", left_index=True, right_index=True, suffixes=("", "_party"))
+combined = combined.merge(gender_counts, how="outer", left_index=True, right_index=True, suffixes=("", "_gender"))
+
+# NaN 값은 0으로 채움
+combined = combined.fillna(0).astype(int)
+
+# 저장 경로 지정
+output_path = "C:/Users/1-16/OneDrive/바탕 화면/project/laws-radar/merged/data/combined_counts.csv"
+
+# CSV로 저장
+combined.to_csv(output_path, encoding="utf-8-sig")  # Excel 호환용
+print(f"파일이 저장되었습니다: {output_path}")
 
 
-# columns_to_select = ["HG_NM", "BILL_NAME", "RESULT_VOTE_MOD", "gender", "electoralDistrict", "partyName"]
-# df_lawmaker_votes = df_selected[columns_to_select]
+with open(output_path, "w", encoding="utf-8") as f:
+    for bill_name in sorted_vote_counts.index:
+        f.write(f"\n[의안명] {bill_name}\n")
 
-# # 확인
-# print(df_lawmaker_votes.head())
+        f.write(" - 투표 결과:\n")
+        if bill_name in vote_counts.index:
+            f.write(str(vote_counts.loc[bill_name]) + "\n")
+        else:
+            f.write("데이터 없음\n")
+
+        f.write(" - 정당 분포:\n")
+        if bill_name in party_counts.index:
+            f.write(str(party_counts.loc[bill_name]) + "\n")
+        else:
+            f.write("데이터 없음\n")
+
+        f.write(" - 성별 분포:\n")
+        if bill_name in gender_counts.index:
+            f.write(str(gender_counts.loc[bill_name]) + "\n")
+        else:
+            f.write("데이터 없음\n")
+        print("데이터 없음")
+
+
+# # 예시 출력: 상위 3개 의안만 출력
+# for bill_name, vote_data in list(result.items())[:3]:
+#     print(f"\n[의안명] {bill_name}")
+#     for vote_type, data in vote_data.items():
+#         print(f"  - {vote_type}")
+#         print(f"    * 의원: {data['HG_NM']}")
+#         print(f"    * 성별: {data['gender']}")
+#         print(f"    * 정당: {data['partyName']}")
+#         print(f"    * 지역구: {data['electoralDistrict']}")
 
 # (선택) 원래 병합 데이터 저장
 # df_selected.to_csv("~/OneDrive/바탕 화면/project/laws-radar/merged/data/member_count1.csv", index=False)

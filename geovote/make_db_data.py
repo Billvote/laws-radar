@@ -5,30 +5,40 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 import settings
 
-# 정당: 대수, 정당 이름
-# 1. 필요한 CSV 불러오기
-all_party_path = settings.MEMBER_INFO_DATA_DIR / 'all_member_18-22.csv'
-df = pd.read_csv(all_party_path)
+# 1. 정당: 대수, 정당 이름
+# all_party_path = settings.MEMBER_INFO_DATA_DIR / 'all_member_18-22.csv'
+# df = pd.read_csv(all_party_path)
 
-# 2. 필요한 컬럼 선택 및 이름 정리
-df = df[['대수', '정당']].rename(columns={'대수': 'age', '정당': 'party'})
+# df = df[['대수', '정당']].rename(columns={'대수': 'age', '정당': 'party'})
+# filtered = df[df['age'].isin([20, 21, 22])]
+# unique_parties = filtered.drop_duplicates(subset=['age', 'party']).reset_index(drop=True)
 
-# 3. 20~22대 필터링
-filtered = df[df['age'].isin([20, 21, 22])]
+# ------------------------------------------------------------
+# 2. bill: age, title, bill_id, bill_number, content
 
-# # 4. 중복 제거 (정당명 기준)
-# unique_parties = filtered['party'].dropna().drop_duplicates().reset_index(drop=True)
+# 1. 각 대수별 CSV 파일 경로
+paths = {
+    20: settings.BASE_DIR / 'merged' / 'data' / 'bill_summary_20.csv',
+    21: settings.BASE_DIR / 'merged' / 'data' / 'bill_summary_21.csv',
+    22: settings.BASE_DIR / 'merged' / 'data' / 'bill_summary_22.csv',
+}
 
-# # 5. DataFrame으로 변환
-# unique_df = pd.DataFrame({'party': unique_parties})
+# 2. DataFrame 리스트에 각 파일을 읽고 age 컬럼 추가
+dfs = []
+for age, path in paths.items():
+    df = pd.read_csv(path)
+    df['age'] = age
+    dfs.append(df)
 
-# # 6. 저장
-# output_path = settings.BASE_DIR / 'member_info' / 'data' / 'unique_parties_20_22.csv'
-# unique_df.to_csv(output_path, index=False)
+# 3. 모두 병합
+merged_df = pd.concat(dfs, ignore_index=True)
 
-# print(f"✅ 유니크 정당 CSV 저장 완료: {output_path}")
+# 4. 결과 확인
+print(merged_df.head())
+print(merged_df['age'].value_counts())
 
-# print(filtered)
-# print(filtered.groupby('age').value_counts())
-# print(filtered.groupby('age')['party'].count())
-# print(filtered.groupby('age')['party'].unique())
+# --------------------------------------------------
+# 저장
+# output_path = settings.BASE_DIR / 'geovote' / 'data' / 'party.csv'
+# unique_parties.to_csv(output_path, index=False)
+# print(f"✅ CSV 저장 완료: {output_path}")

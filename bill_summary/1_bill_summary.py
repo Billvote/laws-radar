@@ -1,3 +1,5 @@
+﻿# CSV 파일에서 BILL_URL 리스트와 제안이유, 주요내용 추출 하는 코드 => data폴더에 저장됨
+
 import pandas as pd
 import requests
 from bs4 import BeautifulSoup

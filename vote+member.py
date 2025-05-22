@@ -58,10 +58,14 @@ from collections import Counter
 
 # 홈 디렉토리를 기준으로 경로 지정
 base_dir = Path.home() /"Desktop" / "project" / "laws-radar"
+save_dir = base_dir /"merged" / "data"
 
 # 파일 경로 정의
 members_path = base_dir / "member_info" / "data" / "member_22.csv"
 votes_path = base_dir / "result_vote" / "data" / "vote_results_22.csv"
+
+# 저장할 파일 경로 지정
+output_path = save_dir / "member+summary.csv"
 
 # CSV 파일 불러오기
 df_members = pd.read_csv(members_path)
@@ -73,9 +77,9 @@ print(df_votes.columns)
 # 확인
 # print(df_members.head())
 
-# # 컬럼 공백 제거
-# df_votes.columns = df_votes.columns.str.strip()
-# df_members.columns = df_members.columns.str.strip()
+# 컬럼 공백 제거
+df_votes.columns = df_votes.columns.str.strip()
+df_members.columns = df_members.columns.str.strip()
 
 df_merged = pd.merge(
     df_votes,
@@ -121,7 +125,8 @@ df_summary_counts = df_selected.groupby(
 
 print(df_summary_counts.head())
 
-df_summary_counts.to_csv("summary_counts.csv", index=False, encoding="utf-8-sig")
+# CSV 저장 (인덱스 없이, UTF-8-sig 인코딩)
+df_summary_counts.to_csv(output_path, index=False, encoding="utf-8-sig")
 
 
 # columns_to_select = ["HG_NM", "BILL_NAME", "RESULT_VOTE_MOD", "gender", "electoralDistrict", "partyName"]

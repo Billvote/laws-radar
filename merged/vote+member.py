@@ -52,9 +52,10 @@
 
 #==================================================================================
 import pandas as pd
+
 from collections import defaultdict
 
-# CSV 파일 불러오기
+# CSV 파일 불러오기     
 df_members = pd.read_csv("~/OneDrive/바탕 화면/project/laws-radar/member_info/data/member_22.csv")       # 이름, 정당, 지역구 등
 df_votes = pd.read_csv("~/OneDrive/바탕 화면/project/laws-radar/result_vote/data/vote_results_22.csv")         # 의안ID, 의안명, 의원명, 투표결과 등
 

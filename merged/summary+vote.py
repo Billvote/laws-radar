@@ -6,6 +6,7 @@ base_dir = 'C:/Users/1-08/OneDrive/Desktop/DAMF2/Final_PJT/'
 
 # 1) 표결 결과 불러오기
 vote_file_path = os.path.join(base_dir, 'result_vote/data/vote_results_22.csv')
+
 voteDf_22 = pd.read_csv(vote_file_path)
 
 # 필요한 컬럼만 선택 + 중복 제거 (법안당 1개)

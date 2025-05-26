@@ -6,12 +6,13 @@ sys.path.append(str(Path(__file__).resolve().parents[1]))
 import settings
 
 # 1. 정당: 대수, 정당 이름
-# all_party_path = settings.MEMBER_INFO_DATA_DIR / 'all_member_18-22.csv'
-# df = pd.read_csv(all_party_path)
+all_party_path = settings.MEMBER_INFO_DATA_DIR / 'all_member_18-22.csv'
+df = pd.read_csv(all_party_path, encoding='utf-8-sig')
+print(df.columns)
 
-# df = df[['대수', '정당']].rename(columns={'대수': 'age', '정당': 'party'})
-# filtered = df[df['age'].isin([20, 21, 22])]
-# unique_parties = filtered.drop_duplicates(subset=['age', 'party']).reset_index(drop=True)
+df = df[['대수', '정당']].rename(columns={'대수': 'age', '정당': 'party'})
+filtered = df[df['age'].isin([20, 21, 22])]
+unique_parties = filtered['party'].drop_duplicates().reset_index(drop=True)
 
 # ------------------------------------------------------------
 # 2. bill: age, title, bill_id, bill_number, content
@@ -91,10 +92,12 @@ import settings
 # print(merged_df.tail())
 # ---------------------------------------------------
 
-# district_22.csv에 geojson 내용 파싱해 붙여넣기
+# < 의원 테이블 >
+
+
 
 # # --------------------------------------------------
 # # 저장
-# output_path = settings.BASE_DIR / 'geovote' / 'data' / 'district.csv'
-# merged_df.to_csv(output_path, index=False, na_rep='NULL')
-# print(f"✅ CSV 저장 완료: {output_path}")
+output_path = settings.BASE_DIR / 'geovote' / 'data' / 'party(1).csv'
+unique_parties.to_csv(output_path, index=False, na_rep='NULL')
+print(f"✅ CSV 저장 완료: {output_path}")

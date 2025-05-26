@@ -73,7 +73,7 @@ df_merged = pd.merge(
     df_votes,
     df_members,
     left_on="HG_NM",     # 투표결과 파일의 의원 이름 컬럼
-    right_on="name",     # 기본정보 파일의 의원 이름 컬럼
+    right_on="이름",     # 기본정보 파일의 의원 이름 컬럼
     how="left"
 )
 
@@ -94,72 +94,75 @@ df_selected = df_merged.dropna(subset=["RESULT_VOTE_MOD", "BILL_NAME", "partyNam
 # # 결과 확인
 # print(df_selected.head())
 
-# BILL_NAME + 찬반별로 HG_NM, gender 등 분류
-result = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
+import pandas as pd
 
-for _, row in df_selected.iterrows():
-    bill = row["BILL_NAME"]
-    vote = row["RESULT_VOTE_MOD"]
-    
-    result[bill][vote]["HG_NM"].append(row["HG_NM"])
-    result[bill][vote]["gender"].append(row["gender"])
-    result[bill][vote]["partyName"].append(row["partyName"])
-    result[bill][vote]["electoralDistrict"].append(row["electoralDistrict"])
+# 1. 데이터 불러오기
+df_members = pd.read_csv("member_info.csv")
+df_votes = pd.read_csv("vote_results.csv")
 
-    # 1. 찬반 여부(RESULT_VOTE_MOD) 개수 세기
-vote_counts = df_selected.groupby(["BILL_NAME", "RESULT_VOTE_MOD"]).size().unstack(fill_value=0)
+# 2. 컬럼명 공백 제거
+df_members.columns = df_members.columns.str.strip()
+df_votes.columns = df_votes.columns.str.strip()
 
-# 2. 정당별 개수
-party_counts = df_selected.groupby(["BILL_NAME", "partyName"]).size().unstack(fill_value=0)
+# 3. 병합
+df_merged = pd.merge(
+    df_votes,
+    df_members,
+    left_on="HG_NM",
+    right_on="name",
+    how="left"
+)
 
-# 3. 성별별 개수
-gender_counts = df_selected.groupby(["BILL_NAME", "gender"]).size().unstack(fill_value=0)
+# 4. 필요한 열만 추출 및 결측치 제거
+df_selected = df_merged.dropna(subset=["RESULT_VOTE_MOD", "BILL_NAME", "partyName", "gender", "electoralDistrict"])
 
-# 4. 의안별 정렬 (찬성+반대 합 기준 정렬)
-sorted_vote_counts = vote_counts.copy()
-sorted_vote_counts["total"] = sorted_vote_counts.sum(axis=1)
-sorted_vote_counts = sorted_vote_counts.sort_values(by="total", ascending=False)
+# 5. 의안별 정당/성별/지역구별 카운트 구하기
+def get_counts(df, col):
+    return df.groupby(["BILL_NAME", col]).size().unstack(fill_value=0)
 
-# 의안명을 인덱스로 갖는 vote_counts, party_counts, gender_counts 병합
-combined = vote_counts.copy()
+party_counts = get_counts(df_selected, "partyName")
+gender_counts = get_counts(df_selected, "gender")
+district_counts = get_counts(df_selected, "electoralDistrict")
 
-# 병합 시 suffix로 구분
-combined = combined.merge(party_counts, how="outer", left_index=True, right_index=True, suffixes=("", "_party"))
-combined = combined.merge(gender_counts, how="outer", left_index=True, right_index=True, suffixes=("", "_gender"))
+# 6. 의원별 상세 정보 데이터프레임 만들기
+member_details = df_selected[["BILL_NAME", "HG_NM", "partyName", "gender", "electoralDistrict", "RESULT_VOTE_MOD"]]
 
-# NaN 값은 0으로 채움
-combined = combined.fillna(0).astype(int)
+# 7. 의안별로 정당/성별/지역구별 카운트 붙이기
+# (각 카운트는 의안명 기준으로 merge)
+final_df = member_details.copy()
 
-# 저장 경로 지정
-output_path = "C:/Users/1-16/OneDrive/바탕 화면/project/laws-radar/merged/data/combined_counts.csv"
+# 정당별 카운트 붙이기
+for party in party_counts.columns:
+    final_df = final_df.merge(
+        party_counts[[party]].reset_index().rename(columns={party: f"partyCount_{party}"}),
+        on="BILL_NAME",
+        how="left"
+    )
 
-# CSV로 저장
-combined.to_csv(output_path, encoding="utf-8-sig")  # Excel 호환용
+# 성별 카운트 붙이기
+for gender in gender_counts.columns:
+    final_df = final_df.merge(
+        gender_counts[[gender]].reset_index().rename(columns={gender: f"genderCount_{gender}"}),
+        on="BILL_NAME",
+        how="left"
+    )
+
+# 지역구별 카운트 붙이기 (상위 10개만)
+for district in district_counts.columns[:10]:
+    final_df = final_df.merge(
+        district_counts[[district]].reset_index().rename(columns={district: f"districtCount_{district}"}),
+        on="BILL_NAME",
+        how="left"
+    )
+
+# 결측치는 0으로
+final_df = final_df.fillna(0)
+
+# 8. 저장
+output_path = "bill_vote_summary.csv"
+final_df.to_csv(output_path, index=False, encoding="utf-8-sig")
 print(f"파일이 저장되었습니다: {output_path}")
 
-
-with open(output_path, "w", encoding="utf-8") as f:
-    for bill_name in sorted_vote_counts.index:
-        f.write(f"\n[의안명] {bill_name}\n")
-
-        f.write(" - 투표 결과:\n")
-        if bill_name in vote_counts.index:
-            f.write(str(vote_counts.loc[bill_name]) + "\n")
-        else:
-            f.write("데이터 없음\n")
-
-        f.write(" - 정당 분포:\n")
-        if bill_name in party_counts.index:
-            f.write(str(party_counts.loc[bill_name]) + "\n")
-        else:
-            f.write("데이터 없음\n")
-
-        f.write(" - 성별 분포:\n")
-        if bill_name in gender_counts.index:
-            f.write(str(gender_counts.loc[bill_name]) + "\n")
-        else:
-            f.write("데이터 없음\n")
-        print("데이터 없음")
 
 
 # # 예시 출력: 상위 3개 의안만 출력

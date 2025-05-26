@@ -6,13 +6,13 @@ sys.path.append(str(Path(__file__).resolve().parents[1]))
 import settings
 
 # 1. 정당: 대수, 정당 이름
-all_party_path = settings.MEMBER_INFO_DATA_DIR / 'all_member_18-22.csv'
-df = pd.read_csv(all_party_path, encoding='utf-8-sig')
-print(df.columns)
+# all_party_path = settings.MEMBER_INFO_DATA_DIR / 'all_member_18-22.csv'
+# df = pd.read_csv(all_party_path, encoding='utf-8-sig')
+# # print(df.columns)
 
-df = df[['대수', '정당']].rename(columns={'대수': 'age', '정당': 'party'})
-filtered = df[df['age'].isin([20, 21, 22])]
-unique_parties = filtered['party'].drop_duplicates().reset_index(drop=True)
+# df = df[['대수', '정당']].rename(columns={'대수': 'age', '정당': 'party'})
+# filtered = df[df['age'].isin([20, 21, 22])]
+# unique_parties = filtered['party'].drop_duplicates().reset_index(drop=True)
 
 # ------------------------------------------------------------
 # 2. bill: age, title, bill_id, bill_number, content
@@ -92,12 +92,38 @@ unique_parties = filtered['party'].drop_duplicates().reset_index(drop=True)
 # print(merged_df.tail())
 # ---------------------------------------------------
 
-# < 의원 테이블 >
+# < 의원 테이블: age, name, party, sido_sgg, member_id, gender 값 필요
 
+paths = {
+    20: settings.BASE_DIR / 'member_info' / 'data' / 'members20.csv',
+    21: settings.BASE_DIR / 'member_info' / 'data' / 'members21.csv',
+    22: settings.BASE_DIR / 'member_info' / 'data' / 'members22.csv'
+}
 
+# 파일별 age 컬럼 추가
+dfs = []
+for age, path in paths.items():
+    df = pd.read_csv(path)
+    df['age'] = age
+    dfs.append(df)
+
+# 병합
+merged_df = pd.concat(dfs, ignore_index=True)
+# filtered_df = merged_df[~merged_df['electoralDistrict'].str.contains('비례대표', na=False)]
+
+merged_df = merged_df.rename(columns={
+    'monaCode': 'member_id',
+    '이름': 'name',
+    '정당': 'party',
+    '선거구': 'SIDO_SGG',
+    '성별': 'gender'
+    })
+merged_df = merged_df[['age', 'name', 'party', 'SIDO_SGG', 'member_id', 'gender']] # 순서 정렬
+
+# print(merged_df.head())
 
 # # --------------------------------------------------
 # # 저장
-output_path = settings.BASE_DIR / 'geovote' / 'data' / 'party(1).csv'
-unique_parties.to_csv(output_path, index=False, na_rep='NULL')
+output_path = settings.BASE_DIR / 'geovote' / 'data' / 'member.csv'
+merged_df.to_csv(output_path, index=False, na_rep='NULL')
 print(f"✅ CSV 저장 완료: {output_path}")

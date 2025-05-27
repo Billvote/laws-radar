@@ -7,7 +7,7 @@ df = pd.read_csv(r'C:\Users\1-02\Desktop\DAMF2\laws-radar\billview\merged_output
 
 # title 컬럼에서 제거할 키워드들을 포함하는 행 찾기
 # 정규표현식을 사용하여 여러 키워드를 한번에 검색
-keywords_pattern = '예산안|변경안|회계'
+keywords_pattern = '예산안|변경안|회계|감사요구안|의사일정|구성의|일부개정규칙안|연장의|변경동의의|국가보증|감사요구안|회기결정의|파견|비준동의안|한도액안|결의안|기금운용계획안|채택의'
 mask = df['title'].str.contains(keywords_pattern, na=False)
 
 # 제거될 행들(키워드 포함된 행들) 추출

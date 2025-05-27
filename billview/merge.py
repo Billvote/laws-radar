@@ -19,7 +19,8 @@ INPUT_PATHS = {
 }
 OUTPUT_DIRS = {
     'merged': os.path.join(PROJECT_ROOT, 'billview', 'merged_output'),
-    'age': os.path.join(PROJECT_ROOT, 'age_classification')
+    'age': os.path.join(PROJECT_ROOT, 'age_classification'),
+    'missing': os.path.join(PROJECT_ROOT, 'billview', 'merged_output')  # 누락 content도 동일 경로!
 }
 
 def validate_paths():
@@ -38,14 +39,10 @@ def merge_datasets():
     for src, path in INPUT_PATHS.items():
         try:
             df = pd.read_csv(path, encoding='utf-8')
-            
-            # 필수 컬럼 검증
             missing_cols = set(required_columns) - set(df.columns)
             if missing_cols:
                 raise KeyError(f"필수 컬럼 누락: {', '.join(missing_cols)}")
-                
             dfs.append(df[required_columns])
-            
         except Exception as e:
             raise RuntimeError(f"{src} 데이터 처리 실패: {str(e)}")
     
@@ -54,59 +51,59 @@ def merge_datasets():
     merged.to_csv(merged_path, index=False, encoding='utf-8-sig')
     return merged
 
-def classify_age_data(df):
-    """연령 분류 처리기"""
-    if 'age' not in df.columns:
-        print("경고: 연령 분류를 수행할 수 없습니다.")
-        return
-    
-    df['age'] = pd.to_numeric(df['age'], errors='coerce')
-    
-    # 연령 그룹 분류
-    bins = [0, 19, 29, 39, 49, 59, 69, 150]
-    labels = ['10대', '20대', '30대', '40대', '50대', '60대', '70대 이상']
-    df['age_group'] = pd.cut(df['age'], bins=bins, labels=labels, right=False)
-    
-    # 그룹별 저장
-    for group in labels:
-        group_df = df[df['age_group'] == group]
-        output_path = os.path.join(OUTPUT_DIRS['age'], f"{group}_data.csv")
-        group_df.to_csv(output_path, index=False, encoding='utf-8-sig')
-
 def analyze_missing_content(df):
-    """Content 누락 분석"""
+    """Content 누락 분석 및 추출"""
     if 'content' not in df.columns:
         print("경고: Content 컬럼이 존재하지 않습니다.")
-        return
+        return 0, 0
     
-    # NaN과 빈 문자열 모두 카운팅
-    missing_count = df['content'].isna().sum()
-    empty_count = (df['content'] == '').sum()
+    missing_mask = df['content'].isna()
+    empty_mask = (df['content'] == '')
+    combined_mask = missing_mask | empty_mask
+    missing_df = df[combined_mask].copy()
+    
+    output_path = os.path.join(OUTPUT_DIRS['missing'], 'missing_content.csv')
+    missing_df.to_csv(output_path, index=False, encoding='utf-8-sig')
+    
+    missing_count = missing_mask.sum()
+    empty_count = empty_mask.sum()
     
     print("\n=== Content 누락 분석 ===")
     print(f"NaN 값 개수: {missing_count}건")
     print(f"빈 문자열 개수: {empty_count}건")
     print(f"총 누락 레코드 수: {missing_count + empty_count}건")
+    print(f"누락 데이터 파일 경로: {output_path}")
+    
+    return missing_count + empty_count
+
+def classify_age_data(df):
+    """연령 분류 처리기"""
+    if 'age' not in df.columns:
+        print("경고: 연령 분류를 수행할 수 없습니다.")
+        return
+    df['age'] = pd.to_numeric(df['age'], errors='coerce')
+    bins = [0, 19, 29, 39, 49, 59, 69, 150]
+    labels = ['10대', '20대', '30대', '40대', '50대', '60대', '70대 이상']
+    df['age_group'] = pd.cut(df['age'], bins=bins, labels=labels, right=False)
+    for group in labels:
+        group_df = df[df['age_group'] == group]
+        output_path = os.path.join(OUTPUT_DIRS['age'], f"{group}_data.csv")
+        group_df.to_csv(output_path, index=False, encoding='utf-8-sig')
 
 def main():
     print("=== 데이터 병합 시스템 시작 ===")
     print(f"인식된 프로젝트 루트: {PROJECT_ROOT}")
-    
     try:
         validate_paths()
         merged_data = merge_datasets()
-        
-        # 누락 content 분석
-        analyze_missing_content(merged_data)
-        
-        # 연령 분류
+        total_missing = analyze_missing_content(merged_data)
         classify_age_data(merged_data)
-        
         print("\n=== 처리 결과 ===")
         print(f"총 병합 레코드: {len(merged_data):,}건")
+        print(f"누락 content 레코드: {total_missing}건")
         print(f"저장 위치:")
         print(f"- 병합 파일: {os.path.join(OUTPUT_DIRS['merged'], 'consolidated_data.csv')}")
-        
+        print(f"- 누락 content 파일: {os.path.join(OUTPUT_DIRS['missing'], 'missing_content.csv')}")
     except Exception as e:
         print(f"\n오류 발생: {str(e)}")
         return

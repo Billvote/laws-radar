@@ -1,3 +1,5 @@
+# missing_bill 컬럼 정리 및 결측의 결측제거
+
 import os
 import pandas as pd
 from urllib.parse import urlparse, parse_qs

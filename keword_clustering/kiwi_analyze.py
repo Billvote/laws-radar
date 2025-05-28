@@ -1,3 +1,9 @@
+import sys
+from pathlib import Path
+# settings.py를 불러오기 위한 경로 추가
+sys.path.append(str(Path(__file__).resolve().parents[1]))
+import settings
+
 from kiwipiepy import Kiwi
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.cluster import KMeans
@@ -6,9 +12,10 @@ import os
 
 # 데이터 불러오기
 # 기본 경로 설정
-base_dir = 'C:/Users/1-08/OneDrive/Desktop/DAMF2/Final_PJT/'
-file_path = os.path.join(base_dir, 'merged/data/summary+vote_22.csv')
-df = pd.read_csv(file_path)
+
+file_path = settings.BASE_DIR / 'geovote' / 'data' / 'bill_filtered_final.csv'
+df = pd.read_csv(file_path, encoding='utf-8-sig')
+
 
 # 형태소 분석기 초기화
 kiwi = Kiwi()
@@ -38,7 +45,7 @@ for noun in custom_nouns:
 # 사용자 정의 불용어 리스트 (원하는 단어 추가 가능)
 stopwords = {
     '조', '항', '호', '경우', '등', '수', '것', '이', '차', '후', '이상', '이하', '이내'
-    '안', '소', '대', '점', '간', '곳', '해당', '차', '외', '경우', '나', '바'
+    '안', '소', '대', '점', '간', '곳', '해당', '차', '외', '경우', '나', '바', '시'
     }
 
 
@@ -62,7 +69,7 @@ def extract_nouns(text):
         return ''
 
 # 전처리: 명사 추출 후 새로운 컬럼에 저장
-df['cleaned'] = df['summary'].apply(extract_nouns)
+df['cleaned'] = df['content'].apply(extract_nouns)
 
 # TF-IDF 벡터화
 vectorizer = TfidfVectorizer(max_df=0.9, min_df=2)
@@ -74,8 +81,9 @@ model = KMeans(n_clusters=k, random_state=42)
 df['cluster'] = model.fit_predict(X)
 
 # 결과 확인
-print(df[['BILL_NAME', 'cluster']].head())
+print(df[['title', 'cluster']].head())
 
 # 저장
-df.to_csv('data/clustered_bills_22.csv', index=False, encoding='utf-8-sig')
+output_path = settings.BASE_DIR / 'keword_clustering' / 'data' / 'clustered_bills.csv'
+df.to_csv(output_path, index=False, encoding='utf-8-sig')
 print("✅ 클러스터링 결과 저장 완료")

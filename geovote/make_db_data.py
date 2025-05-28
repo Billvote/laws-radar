@@ -94,36 +94,73 @@ import settings
 
 # < 의원 테이블: age, name, party, sido_sgg, member_id, gender 값 필요
 
-paths = {
-    20: settings.BASE_DIR / 'member_info' / 'data' / 'members20.csv',
-    21: settings.BASE_DIR / 'member_info' / 'data' / 'members21.csv',
-    22: settings.BASE_DIR / 'member_info' / 'data' / 'members22.csv'
-}
+# paths = {
+#     20: settings.BASE_DIR / 'member_info' / 'data' / 'members20.csv',
+#     21: settings.BASE_DIR / 'member_info' / 'data' / 'members21.csv',
+#     22: settings.BASE_DIR / 'member_info' / 'data' / 'members22.csv'
+# }
 
-# 파일별 age 컬럼 추가
-dfs = []
-for age, path in paths.items():
-    df = pd.read_csv(path)
-    df['age'] = age
-    dfs.append(df)
+# # 파일별 age 컬럼 추가
+# dfs = []
+# for age, path in paths.items():
+#     df = pd.read_csv(path)
+#     df['age'] = age
+#     dfs.append(df)
 
-# 병합
-merged_df = pd.concat(dfs, ignore_index=True)
-# filtered_df = merged_df[~merged_df['electoralDistrict'].str.contains('비례대표', na=False)]
+# # 병합
+# merged_df = pd.concat(dfs, ignore_index=True)
+# # filtered_df = merged_df[~merged_df['electoralDistrict'].str.contains('비례대표', na=False)]
 
-merged_df = merged_df.rename(columns={
-    'monaCode': 'member_id',
-    '이름': 'name',
-    '정당': 'party',
-    '선거구': 'SIDO_SGG',
-    '성별': 'gender'
-    })
-merged_df = merged_df[['age', 'name', 'party', 'SIDO_SGG', 'member_id', 'gender']] # 순서 정렬
+# merged_df = merged_df.rename(columns={
+#     'monaCode': 'member_id',
+#     '이름': 'name',
+#     '정당': 'party',
+#     '선거구': 'SIDO_SGG',
+#     '성별': 'gender'
+#     })
+# merged_df = merged_df[['age', 'name', 'party', 'SIDO_SGG', 'member_id', 'gender']] # 순서 정렬
 
 # print(merged_df.head())
 
-# # --------------------------------------------------
-# # 저장
-output_path = settings.BASE_DIR / 'geovote' / 'data' / 'member.csv'
+# 표결 --------------------------------------------------
+# 모델링 수정: 의원id, 의안 번호나 id, 정당, 성별 있어야 할 듯, 찬성반대기권불참 
+
+# vote 병합
+# paths = {
+#     20: settings.BASE_DIR / 'result_vote' / 'data' / 'vote_20.csv',
+#     21: settings.BASE_DIR / 'result_vote' / 'data' / 'vote_21.csv',
+#     22: settings.BASE_DIR / 'result_vote' / 'data' / 'vote_22.csv'
+#     }
+
+# dfs = []
+# for age, path in paths.items():
+#     df = pd.read_csv(path)
+#     dfs.append(df)
+
+# vote_df = pd.concat(dfs, ignore_index=True)
+# vote_df = vote_df[['AGE', 'MONA_CD', 'BILL_ID', 'RESULT_VOTE_MOD']].rename(
+#     columns={
+#         'AGE': 'age',
+#         'MONA_CD': 'member_id',
+#         'BILL_ID': 'bill_id',
+#         'RESULT_VOTE_MOD': 'vote_result',
+#     })
+
+# bill_number 추가하기..
+vote_path = settings.BASE_DIR / 'geovote' / 'data' / 'vote.csv'
+bill_path = settings.BASE_DIR / 'geovote' / 'data' / 'bill.csv'
+
+vote_df = pd.read_csv(vote_path)
+bill_df = pd.read_csv(bill_path)
+bill_df['bill_number'] = bill_df['bill_number'].astype(str)
+
+merged_df = vote_df.merge(bill_df[['bill_id', 'bill_number']], on='bill_id', how='left')
+
+
+print(merged_df.shape)
+# print(monaCd_df.head())
+
+# 저장
+output_path = settings.BASE_DIR / 'geovote' / 'data' / 'vote(1).csv'
 merged_df.to_csv(output_path, index=False, na_rep='NULL')
 print(f"✅ CSV 저장 완료: {output_path}")

@@ -157,20 +157,49 @@ import settings
 # merged_df = vote_df.merge(bill_df[['bill_id', 'bill_number']], on='bill_id', how='left')
 
 # 기존 CSV 불러오기
-path = settings.BASE_DIR / 'geovote' / 'data' / 'vote.csv'
+# path = settings.BASE_DIR / 'geovote' / 'data' / 'vote.csv'
 
-df = pd.read_csv(path)
+# df = pd.read_csv(path)
 
-# bill_id 컬럼 삭제
-df = df.drop(columns=['bill_id'])
-df['bill_number'] = df['bill_number'].fillna(0).astype(int).astype(str)
+# # bill_id 컬럼 삭제
+# df = df.drop(columns=['bill_id'])
+# df['bill_number'] = df['bill_number'].fillna(0).astype(int).astype(str)
 
 # 새로운 CSV 저장 (bill_id 제외)
 # df.to_csv('수정된파일.csv', index=False)
 
 # print(monaCd_df.head())
+# --------------------------
+# 의안 다시
+
+# 대수별 CSV 파일 경로
+paths = {
+    20: settings.BASE_DIR / 'result_vote' / 'data' / 'final_20.csv',
+    21: settings.BASE_DIR / 'result_vote' / 'data' / 'final_21.csv',
+    22: settings.BASE_DIR / 'result_vote' / 'data' / 'final_22.csv'
+}
+
+# 파일별 age 컬럼 추가
+dfs = []
+for age, path in paths.items():
+    df = pd.read_csv(path)
+    dfs.append(df)
+
+# 병합 age,member_id,vote_result,bill_number, vote_date
+merged_df = pd.concat(dfs, ignore_index=True).drop(columns=['BILL_ID']).rename(
+        columns={
+            'AGE': 'age',
+            'MONA_CD': 'member_id',
+            'BILL_NO': 'bill_number',
+            'RESULT_VOTE_MOD': 'result',
+            'VOTE_DATE': 'date'
+            })
+
+print(merged_df.head())
+print(merged_df.shape)
+
 
 # 저장
-output_path = settings.BASE_DIR / 'geovote' / 'data' / 'vote(1).csv'
+output_path = settings.BASE_DIR / 'geovote' / 'data' / 'vote.csv'
 df.to_csv(output_path, index=False, na_rep='NULL')
 print(f"✅ CSV 저장 완료: {output_path}")

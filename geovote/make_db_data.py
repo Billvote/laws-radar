@@ -147,20 +147,30 @@ import settings
 #     })
 
 # bill_number 추가하기..
-vote_path = settings.BASE_DIR / 'geovote' / 'data' / 'vote.csv'
-bill_path = settings.BASE_DIR / 'geovote' / 'data' / 'bill.csv'
+# vote_path = settings.BASE_DIR / 'geovote' / 'data' / 'vote.csv'
+# bill_path = settings.BASE_DIR / 'geovote' / 'data' / 'bill.csv'
 
-vote_df = pd.read_csv(vote_path)
-bill_df = pd.read_csv(bill_path)
-bill_df['bill_number'] = bill_df['bill_number'].astype(str)
+# vote_df = pd.read_csv(vote_path)
+# bill_df = pd.read_csv(bill_path)
+# bill_df['bill_number'] = bill_df['bill_number'].astype(str)
 
-merged_df = vote_df.merge(bill_df[['bill_id', 'bill_number']], on='bill_id', how='left')
+# merged_df = vote_df.merge(bill_df[['bill_id', 'bill_number']], on='bill_id', how='left')
 
+# 기존 CSV 불러오기
+path = settings.BASE_DIR / 'geovote' / 'data' / 'vote.csv'
 
-print(merged_df.shape)
+df = pd.read_csv(path)
+
+# bill_id 컬럼 삭제
+df = df.drop(columns=['bill_id'])
+df['bill_number'] = df['bill_number'].fillna(0).astype(int).astype(str)
+
+# 새로운 CSV 저장 (bill_id 제외)
+# df.to_csv('수정된파일.csv', index=False)
+
 # print(monaCd_df.head())
 
 # 저장
 output_path = settings.BASE_DIR / 'geovote' / 'data' / 'vote(1).csv'
-merged_df.to_csv(output_path, index=False, na_rep='NULL')
+df.to_csv(output_path, index=False, na_rep='NULL')
 print(f"✅ CSV 저장 완료: {output_path}")

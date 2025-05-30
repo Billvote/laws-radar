@@ -4,6 +4,7 @@ from pathlib import Path
 # settings.py를 불러오기 위한 경로 추가
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 import settings
+import datetime
 
 # 1. 정당: 대수, 정당 이름
 # all_party_path = settings.MEMBER_INFO_DATA_DIR / 'all_member_18-22.csv'
@@ -195,11 +196,13 @@ merged_df = pd.concat(dfs, ignore_index=True).drop(columns=['BILL_ID']).rename(
             'VOTE_DATE': 'date'
             })
 
+merged_df['date'] = pd.to_datetime(merged_df['date'].str[:8], format='%Y%m%d').dt.strftime('%Y-%m-%d')
+
 print(merged_df.head())
 print(merged_df.shape)
 
 
 # 저장
 output_path = settings.BASE_DIR / 'geovote' / 'data' / 'vote.csv'
-df.to_csv(output_path, index=False, na_rep='NULL')
+merged_df.to_csv(output_path, index=False, na_rep='NULL')
 print(f"✅ CSV 저장 완료: {output_path}")

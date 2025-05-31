@@ -6,7 +6,7 @@ import re
 base_file_path = r"C:\Users\1-02\Desktop\DAMF2\laws-radar\geovote\data\bill_filtered_final.csv"
 cluster_file_path = r"C:\Users\1-02\Desktop\DAMF2\laws-radar\keword_clustering\data\bill_keyword_clustering.csv"
 summary_file_path = r"C:\Users\1-02\Desktop\DAMF2\laws-radar\geovote\data\gemini_processed_bills.csv"
-output_path = r"C:\Users\1-02\Desktop\DAMF2\laws-radar\geovote\data\merged_bill_data.csv"
+output_path = r"C:\Users\1-02\Desktop\DAMF2\laws-radar\merged_bill_data.csv"
 
 # 1. 파일 읽기
 base_df = pd.read_csv(base_file_path, encoding='utf-8', on_bad_lines='warn')
@@ -17,21 +17,25 @@ summary_df = pd.read_csv(summary_file_path, encoding='utf-8', engine='python', o
 cluster_df = cluster_df.rename(columns={'topic': 'cluster', 'topic_label': 'cluster_keyword'})
 summary_df = summary_df.rename(columns={'content': 'summary'})  # content → summary
 
-# 3. 기본 데이터 전처리
-base_columns = ['title', 'bill_id', 'bill_number']
+# 3. 필요한 컬럼만 추출
+base_columns = ['age', 'title', 'bill_id', 'bill_number']
 cluster_columns = ['bill_id', 'cluster', 'cluster_keyword']
 summary_columns = ['bill_id', 'summary']
 
+base_df = base_df[base_columns]
+cluster_df = cluster_df[cluster_columns]
+summary_df = summary_df[summary_columns]
+
 # 4. 데이터 병합
 merged_df = pd.merge(
-    base_df[base_columns],
-    cluster_df[cluster_columns],
+    base_df,
+    cluster_df,
     on='bill_id',
     how='left'
 )
 merged_df = pd.merge(
     merged_df,
-    summary_df[summary_columns],
+    summary_df,
     on='bill_id',
     how='left'
 )
@@ -46,8 +50,8 @@ def format_keywords(x):
 
 merged_df['cluster_keyword'] = merged_df['cluster_keyword'].apply(format_keywords)
 
-# 6. 최종 컬럼 정렬
-final_columns = ['title', 'bill_id', 'bill_number', 'summary', 'cluster', 'cluster_keyword']
+# 6. 최종 컬럼 순서 지정
+final_columns = ['age', 'title', 'bill_id', 'bill_number', 'summary', 'cluster', 'cluster_keyword']
 result_df = merged_df[final_columns]
 
 # 7. 결과 저장

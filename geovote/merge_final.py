@@ -40,13 +40,22 @@ merged_df = pd.merge(
     how='left'
 )
 
-# 5. cluster_keyword 괄호만 제거하고 내용은 남기기
+# 5. cluster_keyword에서 숫자와 쌍따옴표, 괄호만 제거하고 키워드만 남기기
 def format_keywords(x):
     if pd.isna(x): 
         return '[]'
+    # 괄호 제거
     cleaned = str(x).replace('(', ' ').replace(')', ' ')
-    cleaned = re.sub(r'\s+', ' ', cleaned).strip()
-    return f'["{cleaned}"]' if cleaned else '[]'
+    # 맨 앞에 숫자(1개 이상)와 공백 제거
+    cleaned = re.sub(r'^\s*\d+\s*', '', cleaned)
+    # 쌍따옴표 제거
+    cleaned = cleaned.replace('"', '').strip()
+    # 중복 공백 제거
+    cleaned = re.sub(r'\s+', ' ', cleaned)
+    # 앞뒤 쉼표, 공백 정리
+    cleaned = cleaned.strip(' ,')
+    # 빈 값 처리
+    return f'[{cleaned}]' if cleaned else '[]'
 
 merged_df['cluster_keyword'] = merged_df['cluster_keyword'].apply(format_keywords)
 

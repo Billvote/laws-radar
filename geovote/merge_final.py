@@ -6,7 +6,7 @@ import re
 base_file_path = r"C:\Users\1-02\Desktop\DAMF2\laws-radar\geovote\data\bill_filtered_final.csv"
 cluster_file_path = r"C:\Users\1-02\Desktop\DAMF2\laws-radar\keword_clustering\data\bill_keyword_clustering.csv"
 summary_file_path = r"C:\Users\1-02\Desktop\DAMF2\laws-radar\geovote\data\gemini_processed_bills.csv"
-output_path = r"C:\Users\1-02\Desktop\DAMF2\laws-radar\merged_bill_data.csv"
+output_path = r"C:\Users\1-02\Desktop\DAMF2\laws-radar\geovote\data\merged_bill_data.csv"
 
 # 1. 파일 읽기
 base_df = pd.read_csv(base_file_path, encoding='utf-8', on_bad_lines='warn')

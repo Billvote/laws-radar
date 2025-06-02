@@ -1,4 +1,4 @@
-# 의안내용 한줄요약 토막글 버전
+# 의안내용 한줄요약 gmini 개조식 버전
 
 import pandas as pd
 import os

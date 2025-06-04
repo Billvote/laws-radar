@@ -25,6 +25,9 @@ def normalize_title(title):
     title = re.sub(r'\s+', ' ', title).strip()
     return title
 
+# cluster_keyword 컬럼에서 대괄호 제거
+df['cluster_keyword'] = df['cluster_keyword'].astype(str).str.strip('[]')
+
 # 정규화된 title로 라벨 생성
 df['label'] = pd.factorize(df['title'].apply(normalize_title))[0]
 

@@ -23,28 +23,43 @@ def initialize_system():
 
 # ================ 관형격 '의' 자동 삽입 ================
 def insert_possessive_eui(phrase):
-    """
-    명사+명사 구조에서 자연스럽게 '의'를 넣어줌
-    예: '고엽제 환자 생계 어려움' → '고엽제 환자의 생계 어려움'
-    """
-    # 이미 '의'가 있으면 그대로 반환
     if '의' in phrase:
         return phrase
-    # '명사 명사' 패턴만 추출
     tokens = phrase.split()
-    # 3개 이상 명사라면 마지막 두 단어 사이에 '의' 삽입
     if len(tokens) >= 3 and all(re.match(r'^[가-힣]+$', t) for t in tokens[-3:]):
         tokens.insert(-2, '의')
         return ' '.join(tokens)
-    # 2개 명사라면 마지막 두 단어 사이에 '의' 삽입
     elif len(tokens) >= 2 and all(re.match(r'^[가-힣]+$', t) for t in tokens[-2:]):
         tokens.insert(-1, '의')
         return ' '.join(tokens)
     return phrase
 
+# ================ 띄어쓰기 및 맞춤법 교정 ================
+def correct_spacing_and_spell(text):
+    try:
+        from pykospacing import Spacing
+        from hanspell import spell_checker
+        spacing = Spacing()
+        spaced_text = spacing(text)
+        spelled_text = spell_checker.check(spaced_text).checked
+        spelled_text = re.sub(r'(\w+) 에 서', r'\1에서', spelled_text)
+        spelled_text = re.sub(r'(\w+) 으로', r'\1로', spelled_text)
+        spelled_text = re.sub(r'(\w+) 을', r'\1를', spelled_text)
+        return spelled_text
+    except ImportError:
+        text = re.sub(r'\s+의\s+', '의 ', text)
+        text = re.sub(r'\s+([은는이가을를에에서으로로])\s+', r'\1 ', text)
+        return text
+
+# ================ 쉼표 대체 함수 ================
+def replace_comma_with_dot(text):
+    """문자열 내 쉼표(,)를 '·'로 대체"""
+    if isinstance(text, str):
+        return text.replace(",", "·")
+    return text
+
 # ================ 자연스러운 조사/어미 변환 ================
 def josa(word, josa_pair):
-    """받침 유무에 따라 적합한 조사를 반환"""
     if not word:
         return josa_pair[1]
     code = ord(word[-1])
@@ -52,19 +67,13 @@ def josa(word, josa_pair):
     return josa_pair[0] if has_jong else josa_pair[1]
 
 def postprocess_korean_sentence(p1, p2, p3):
-    """
-    맥락과 문법을 고려한 조사 및 어미 자동 적용 + 관형격 '의' 자동 삽입
-    """
-    # 명사+명사 구조라면 '의' 넣기
     p1 = insert_possessive_eui(p1)
-    # 목적/활성화 등은 '을/를 위해'
     if any(x in p1 for x in ["목적", "활성화", "확대", "제고", "강화", "달성"]):
         p1_clean = re.sub(r'^(목적:|목적|활성화:)', '', p1).strip()
         조사1 = josa(p1_clean, ("을", "를"))
         조사2 = josa(p2, ("을", "를"))
         조사3 = josa(p3, ("을", "를"))
         return f"{p1_clean}{조사1} 위해 {p2}{조사2} 추진하여 {p3}{조사3} 달성하고자 합니다"
-    # 문제 중심: '문제는 ...에서 비롯되어 ...로 개선'
     else:
         p1_clean = re.sub(r'^(문제:|문제)', '', p1).strip()
         조사1 = josa(p1_clean, ("은", "는"))
@@ -73,17 +82,15 @@ def postprocess_korean_sentence(p1, p2, p3):
         return f"{p1_clean}{조사1} {p2}{조사2} 비롯되어 {p3}{조사3} 개선하고자 합니다"
 
 def convert_to_sentence(summary):
-    """3단 구조 요약을 자연스러운 한 문장으로 변환"""
     parts = [p.split(": ")[1].strip() if ": " in p else p.strip()
              for p in summary.split("→")]
     if len(parts) != 3:
-        return summary.replace(",", " 그리고")
+        return summary.replace(",", "·")
     p1, p2, p3 = parts
     return postprocess_korean_sentence(p1, p2, p3)
 
 # ================ AI 요약 엔진 ================
 def generate_summary(client, original_text, max_retries=5):
-    """3단계 구조화 요약 생성 후 자연스러운 한 문장으로 변환"""
     if pd.isna(original_text) or not original_text.strip():
         return original_text
 
@@ -116,7 +123,10 @@ def generate_summary(client, original_text, max_retries=5):
                 )
             )
             summary = response.text.strip()
-            return convert_to_sentence(summary)
+            final_text = convert_to_sentence(summary)
+            final_text = correct_spacing_and_spell(final_text)
+            final_text = replace_comma_with_dot(final_text)
+            return final_text
         except Exception as e:
             err_msg = str(e)
             if "503" in err_msg or "UNAVAILABLE" in err_msg:
@@ -133,11 +143,6 @@ def generate_summary(client, original_text, max_retries=5):
 
 # ================ 병렬 처리 엔진 ================
 def process_csv_file(client, input_path, output_path, max_workers=8, requests_per_minute=60):
-    """
-    병렬 처리 + 중간 저장 + 동적 지연
-    max_workers: 동시 요청 수 (유료 티어에서는 8~10 권장)
-    requests_per_minute: 분당 요청 한도 (유료 티어는 60 이상)
-    """
     try:
         df = pd.read_csv(input_path, engine='python')
         print(f"📂 파일 로드 완료: {len(df)}개 행")
@@ -147,7 +152,7 @@ def process_csv_file(client, input_path, output_path, max_workers=8, requests_pe
 
         total_rows = len(df)
         batch_size = max_workers
-        interval = 60.0 / requests_per_minute * batch_size  # ex) 8개/60회 = 8초
+        interval = 60.0 / requests_per_minute * batch_size
 
         processed_count = 0
         start_time = time.time()
@@ -163,39 +168,39 @@ def process_csv_file(client, input_path, output_path, max_workers=8, requests_pe
                 for idx, future in futures:
                     try:
                         result = future.result()
+                        result = replace_comma_with_dot(result)
                         df.at[idx, 'content'] = result
                         processed_count += 1
 
-                        # 진행률 표시
                         if processed_count % 10 == 0:
                             print(f"진행률: {processed_count}/{total_rows} ({processed_count/total_rows*100:.1f}%)")
-
-                        # 100행마다 중간 저장
                         if processed_count % 100 == 0:
+                            # 중간 저장 전 content 쉼표 대체
+                            df['content'] = df['content'].apply(replace_comma_with_dot)
                             df.to_csv(output_path, index=False, encoding='utf-8-sig')
                             print(f"💾 {processed_count}행 처리 후 임시 저장 완료")
                     except Exception as e:
                         print(f"⚠️ 행 {idx} 처리 실패: {str(e)}")
                         df.at[idx, 'content'] = f"오류: {str(e)}"
 
-                # 배치 간 동적 대기
                 elapsed = time.time() - start_time
                 sleep_time = max(interval - elapsed, 0)
                 if batch_end < total_rows:
                     time.sleep(sleep_time)
                 start_time = time.time()
 
-        # 최종 저장
+        # 최종 저장 전 content 쉼표 대체
+        df['content'] = df['content'].apply(replace_comma_with_dot)
         df.to_csv(output_path, index=False, encoding='utf-8-sig')
         print(f"\n💾 최종 저장 완료: {output_path}")
 
-        # 결과 샘플 출력
         print("\n=== 처리 결과 미리보기 ===")
         for i in range(min(3, len(df))):
             print(f"[요약 {i+1}] {df.iloc[i]['content'][:100]}...")
 
     except Exception as e:
         print(f"❌ CSV 처리 오류: {str(e)}")
+        df['content'] = df['content'].apply(replace_comma_with_dot)
         df.to_csv(output_path, index=False, encoding='utf-8-sig')
         print(f"⚠️ 오류 발생! 현재까지 처리한 내용 저장 완료: {output_path}")
 
@@ -210,6 +215,6 @@ if __name__ == "__main__":
             gemini_client,
             INPUT_PATH,
             OUTPUT_PATH,
-            max_workers=8,             # 유료 티어 기준
+            max_workers=8,
             requests_per_minute=60
         )

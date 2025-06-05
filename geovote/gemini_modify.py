@@ -7,9 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 from google import genai
 from google.genai import types
 
-# ================ 시스템 초기화 ================
 def initialize_system():
-    """Gemini API 클라이언트 초기화"""
     try:
         api_key = os.environ.get("GEMINI_API_KEY")
         if not api_key:
@@ -21,20 +19,26 @@ def initialize_system():
         print(f"❌ 시스템 초기화 실패: {str(e)}")
         return None
 
-# ================ 관형격 '의' 자동 삽입 ================
 def insert_possessive_eui(phrase):
     if '의' in phrase:
         return phrase
     tokens = phrase.split()
-    if len(tokens) >= 3 and all(re.match(r'^[가-힣]+$', t) for t in tokens[-3:]):
-        tokens.insert(-2, '의')
-        return ' '.join(tokens)
-    elif len(tokens) >= 2 and all(re.match(r'^[가-힣]+$', t) for t in tokens[-2:]):
+    possessive_targets = ['환자', '공원', '학교', '기관', '센터', '학생', '교사', '어린이', '노인', '아동', '장애인']
+    if len(tokens) >= 2 and tokens[-2] in possessive_targets:
         tokens.insert(-1, '의')
         return ' '.join(tokens)
     return phrase
 
-# ================ 띄어쓰기 및 맞춤법 교정 ================
+def has_jongseong(word):
+    if not word:
+        return False
+    code = ord(word[-1])
+    return (code - 44032) % 28 != 0
+
+def get_last_word(phrase):
+    tokens = [t for t in phrase.strip().split() if re.match(r'^[가-힣]+$', t)]
+    return tokens[-1] if tokens else phrase
+
 def correct_spacing_and_spell(text):
     try:
         from pykospacing import Spacing
@@ -42,6 +46,8 @@ def correct_spacing_and_spell(text):
         spacing = Spacing()
         spaced_text = spacing(text)
         spelled_text = spell_checker.check(spaced_text).checked
+        spelled_text = re.sub(r'([가-힣]+)(은|는|이|가|을|를|의|에|에서|으로|로){2,}', r'\1\2', spelled_text)
+        spelled_text = re.sub(r'([가-힣]+)(은|는) ', lambda m: m.group(1) + ('은 ' if has_jongseong(m.group(1)) else '는 '), spelled_text)
         spelled_text = re.sub(r'(\w+) 에 서', r'\1에서', spelled_text)
         spelled_text = re.sub(r'(\w+) 으로', r'\1로', spelled_text)
         spelled_text = re.sub(r'(\w+) 을', r'\1를', spelled_text)
@@ -51,35 +57,43 @@ def correct_spacing_and_spell(text):
         text = re.sub(r'\s+([은는이가을를에에서으로로])\s+', r'\1 ', text)
         return text
 
-# ================ 쉼표 대체 함수 ================
 def replace_comma_with_dot(text):
-    """문자열 내 쉼표(,)를 '·'로 대체"""
     if isinstance(text, str):
         return text.replace(",", "·")
     return text
 
-# ================ 자연스러운 조사/어미 변환 ================
 def josa(word, josa_pair):
     if not word:
         return josa_pair[1]
-    code = ord(word[-1])
-    has_jong = (code - 44032) % 28 != 0
-    return josa_pair[0] if has_jong else josa_pair[1]
+    return josa_pair[0] if has_jongseong(word) else josa_pair[1]
 
 def postprocess_korean_sentence(p1, p2, p3):
     p1 = insert_possessive_eui(p1)
-    if any(x in p1 for x in ["목적", "활성화", "확대", "제고", "강화", "달성"]):
-        p1_clean = re.sub(r'^(목적:|목적|활성화:)', '', p1).strip()
-        조사1 = josa(p1_clean, ("을", "를"))
-        조사2 = josa(p2, ("을", "를"))
-        조사3 = josa(p3, ("을", "를"))
-        return f"{p1_clean}{조사1} 위해 {p2}{조사2} 추진하여 {p3}{조사3} 달성하고자 합니다"
-    else:
-        p1_clean = re.sub(r'^(문제:|문제)', '', p1).strip()
-        조사1 = josa(p1_clean, ("은", "는"))
-        조사2 = josa(p2, ("에서", "에서"))
-        조사3 = josa(p3, ("으로", "로"))
-        return f"{p1_clean}{조사1} {p2}{조사2} 비롯되어 {p3}{조사3} 개선하고자 합니다"
+    last_word = get_last_word(p1)
+
+    method_nouns = [
+        "신설", "강화", "확대", "도입", "분리", "지원", "완화", "정비", "확립", "정착", "개정", "통합", "폐지", "보완", "운영", "설치", "변경"
+    ]
+    purpose_nouns = ["개선", "예방", "방지", "달성", "실현", "확보", "정착", "유도", "촉진", "해소"]
+
+    # p3가 method_nouns로 끝나면 목적어+을/를+동사+함으로써 개선하고자 함
+    for noun in method_nouns:
+        if p3.strip().endswith(noun):
+            p3_tokens = p3.strip().split()
+            if len(p3_tokens) > 1:
+                obj = ' '.join(p3_tokens[:-1])
+                verb = p3_tokens[-1]
+                obj_josa = josa(get_last_word(obj), ("을", "를"))
+                return f"{p1}{josa(last_word, ('은', '는'))} {p2}에서 비롯되어 {obj}{obj_josa} {verb}함으로써 개선하고자 함"
+            else:
+                # 단일어만 있을 때
+                return f"{p1}{josa(last_word, ('은', '는'))} {p2}에서 비롯되어 {p3.strip()}함으로써 개선하고자 함"
+    for noun in purpose_nouns:
+        if p3.strip().endswith(noun):
+            조사3 = josa(p3.strip(), ("으로", "로"))
+            return f"{p1}{josa(last_word, ('은', '는'))} {p2}에서 비롯되어 {p3}{조사3} 하고자 함"
+    조사3 = josa(p3.strip(), ("으로", "로"))
+    return f"{p1}{josa(last_word, ('은', '는'))} {p2}에서 비롯되어 {p3}{조사3} 개선하고자 함"
 
 def convert_to_sentence(summary):
     parts = [p.split(": ")[1].strip() if ": " in p else p.strip()
@@ -89,7 +103,6 @@ def convert_to_sentence(summary):
     p1, p2, p3 = parts
     return postprocess_korean_sentence(p1, p2, p3)
 
-# ================ AI 요약 엔진 ================
 def generate_summary(client, original_text, max_retries=5):
     if pd.isna(original_text) or not original_text.strip():
         return original_text
@@ -141,7 +154,6 @@ def generate_summary(client, original_text, max_retries=5):
                 return original_text
     return original_text
 
-# ================ 병렬 처리 엔진 ================
 def process_csv_file(client, input_path, output_path, max_workers=8, requests_per_minute=60):
     try:
         df = pd.read_csv(input_path, engine='python')
@@ -171,11 +183,9 @@ def process_csv_file(client, input_path, output_path, max_workers=8, requests_pe
                         result = replace_comma_with_dot(result)
                         df.at[idx, 'content'] = result
                         processed_count += 1
-
                         if processed_count % 10 == 0:
                             print(f"진행률: {processed_count}/{total_rows} ({processed_count/total_rows*100:.1f}%)")
                         if processed_count % 100 == 0:
-                            # 중간 저장 전 content 쉼표 대체
                             df['content'] = df['content'].apply(replace_comma_with_dot)
                             df.to_csv(output_path, index=False, encoding='utf-8-sig')
                             print(f"💾 {processed_count}행 처리 후 임시 저장 완료")
@@ -189,7 +199,6 @@ def process_csv_file(client, input_path, output_path, max_workers=8, requests_pe
                     time.sleep(sleep_time)
                 start_time = time.time()
 
-        # 최종 저장 전 content 쉼표 대체
         df['content'] = df['content'].apply(replace_comma_with_dot)
         df.to_csv(output_path, index=False, encoding='utf-8-sig')
         print(f"\n💾 최종 저장 완료: {output_path}")
@@ -204,10 +213,9 @@ def process_csv_file(client, input_path, output_path, max_workers=8, requests_pe
         df.to_csv(output_path, index=False, encoding='utf-8-sig')
         print(f"⚠️ 오류 발생! 현재까지 처리한 내용 저장 완료: {output_path}")
 
-# ================ 메인 실행 ================
 if __name__ == "__main__":
     INPUT_PATH = r"C:\Users\1-02\Desktop\DAMF2\laws-radar\geovote\data\bill_filtered_final.csv"
-    OUTPUT_PATH = r"C:\Users\1-02\Desktop\DAMF2\laws-radar\geovote\data\processed_bills_optimized.csv"
+    OUTPUT_PATH = r"C:\Users\1-02\Desktop\DAMF2\laws-radar\geovote\data\processed_bills_optimized_final7.csv"
 
     gemini_client = initialize_system()
     if gemini_client:

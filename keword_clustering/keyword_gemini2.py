@@ -9,6 +9,8 @@ import re
 from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.decomposition import LatentDirichletAllocation
 from sklearn.metrics import silhouette_score
+from gensim.models import CoherenceModel
+from gensim.corpora import Dictionary
 import google.generativeai as genai
 import time
 import json
@@ -122,7 +124,7 @@ stopwords = {
     '법률', '법', '조례', '규정', '조항', '조문', '조치', '조정', '규칙',
     '법안', '입법', '개정', '제정', '시행', '공포', '폐지', '일부개정', '전부개정', '동의안', '승인안', '결의안', '건의안', '규칙안', '선출안',
     '발의', '제출', '제안', '제의', '의결', '부결', '폐기', '가결', '채택',
-    '입법예고', '천만', '기관', '기간'
+    '입법예고', '천만', '기관', '기간',
 }
 preserve_terms = {'법률', '법안', '입법', '개정', '제정', '시행', '공포', '폐지', '조례', '규정', '조항', '의결'}
 stopwords = {term for term in stopwords if term not in preserve_terms}
@@ -132,7 +134,7 @@ excluded_terms = {
 }
 excluded_bigrams = {'교육 실시', '징역 벌금', '수립 시행'}
 
-# 전처리 함수 (최적화)
+# 전처리 함수
 def preprocess_text(text):
     text = str(text).replace('？', '').replace('?', '')
     text = re.sub(r'[^\uAC00-\uD7A3a-zA-Z0-9\s]', ' ', text)
@@ -142,7 +144,6 @@ def preprocess_text(text):
     return re.sub(r'\s+', ' ', text).strip()
 
 def extract_nouns(texts):
-    """벡터화된 형태소 분석"""
     results = []
     for text in texts:
         try:
@@ -161,7 +162,6 @@ def extract_nouns(texts):
     return results
 
 def remove_single_char_words(texts):
-    """단일 문자 제거 (벡터화)"""
     return [' '.join(word for word in text.split() if len(word) > 1) for text in texts]
 
 # 데이터 전처리
@@ -170,19 +170,25 @@ df['content'] = remove_single_char_words(df['content'].tolist())
 
 # LDA용 벡터화
 vectorizer = CountVectorizer(
-    max_df=0.5,
-    min_df=10,
+    max_df=0.7,
+    min_df=5,
     ngram_range=(1, 2),
-    max_features=3000,
+    max_features=10000,
     token_pattern=r"(?u)\b\w+\b"
 )
 X = vectorizer.fit_transform(df['content'])
 
-# 실루엣 점수로 최적 클러스터 수 결정
-def find_optimal_n_topics(X, min_topics=10, max_topics=50, step=5):
+# Coherence Score 계산 준비
+texts = [doc.split() for doc in df['content'] if doc]
+dictionary = Dictionary(texts)
+corpus = [dictionary.doc2bow(text) for text in texts]
+
+# 최적 클러스터 수 결정
+def find_optimal_n_topics(X, texts, dictionary, corpus, min_topics=10, max_topics=100, step=10):
     best_n_topics = min_topics
-    best_score = -1
-    print("\n🔍 실루엣 점수로 최적 클러스터 수 계산 중...")
+    best_silhouette = -1
+    best_coherence = 0
+    print("\n🔍 실루엣 및 Coherence 점수로 최적 클러스터 수 계산 중...")
     for n_topics in tqdm(range(min_topics, max_topics + 1, step)):
         try:
             lda = LatentDirichletAllocation(
@@ -190,33 +196,43 @@ def find_optimal_n_topics(X, min_topics=10, max_topics=50, step=5):
                 max_iter=10,
                 learning_method='batch',
                 random_state=42,
-                n_jobs=1  # 단일 스레드 사용
+                n_jobs=1
             )
             topic_dist = lda.fit_transform(X)
-            score = silhouette_score(X, topic_dist.argmax(axis=1))
-            print(f"n_topics={n_topics}, 실루엣 점수: {score:.4f}")
-            if score > best_score:
-                best_score = score
+            silhouette = silhouette_score(X, topic_dist.argmax(axis=1))
+            
+            # Gensim LDA로 Coherence 계산
+            topics = []
+            for topic in lda.components_:
+                top_words = [vectorizer.get_feature_names_out()[i] for i in topic.argsort()[-10:]]
+                topics.append(top_words)
+            coherence_model = CoherenceModel(topics=topics, texts=texts, dictionary=dictionary, coherence='c_v')
+            coherence = coherence_model.get_coherence()
+            
+            print(f"n_topics={n_topics}, 실루엣 점수: {silhouette:.4f}, Coherence 점수: {coherence:.4f}")
+            if silhouette > best_silhouette or (silhouette == best_silhouette and coherence > best_coherence):
+                best_silhouette = silhouette
+                best_coherence = coherence
                 best_n_topics = n_topics
         except Exception as e:
             print(f"n_topics={n_topics} 계산 오류: {e}")
             continue
-    print(f"✅ 최적 클러스터 수: {best_n_topics} (실루엣 점수: {best_score:.4f})")
+    print(f"✅ 최적 클러스터 수: {best_n_topics} (실루엣: {best_silhouette:.4f}, Coherence: {best_coherence:.4f})")
     return best_n_topics
 
 # 최적 클러스터 수로 LDA 훈련
-n_topics = find_optimal_n_topics(X, min_topics=10, max_topics=50, step=5)
+n_topics = find_optimal_n_topics(X, texts, dictionary, corpus, min_topics=10, max_topics=100, step=10)
 lda = LatentDirichletAllocation(
     n_components=n_topics,
     max_iter=10,
     learning_method='batch',
     random_state=42,
-    n_jobs=1  # 단일 스레드 사용
+    n_jobs=1
 )
 lda.fit(X)
 df['topic'] = lda.transform(X).argmax(axis=1)
 
-# 토픽별 키워드 추출 함수
+# 토픽별 키워드 추출
 def get_top_words(model, feature_names, n_top_words=12):
     topic_keywords = {}
     for topic_idx, topic in enumerate(model.components_):
@@ -234,7 +250,7 @@ def get_top_words(model, feature_names, n_top_words=12):
         topic_keywords[topic_idx] = keywords
     return topic_keywords
 
-# Gemini 키워드 정제 함수
+# Gemini 키워드 정제
 @lru_cache(maxsize=1000)
 def refine_keywords_with_gemini_cached(keywords_tuple):
     keywords = list(keywords_tuple)
@@ -300,7 +316,6 @@ def refine_keywords_with_gemini_cached(keywords_tuple):
                 time.sleep(2)
             continue
 
-    # Fallback: 원본 키워드에서 4개 선택
     filtered_keywords = [
         kw for kw in keywords
         if kw not in stopwords and

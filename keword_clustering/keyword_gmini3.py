@@ -1,5 +1,5 @@
+# 엘보우 기법적용
 # -*- coding: utf-8 -*-
-# 실루엣 기법 적용
 import sys
 from pathlib import Path
 import pandas as pd
@@ -9,7 +9,6 @@ import numpy as np
 import re
 from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.decomposition import LatentDirichletAllocation
-from sklearn.metrics import silhouette_score
 from gensim.models import CoherenceModel
 from gensim.corpora import Dictionary
 import google.generativeai as genai
@@ -184,13 +183,14 @@ texts = [doc.split() for doc in df['content'] if doc]
 dictionary = Dictionary(texts)
 corpus = [dictionary.doc2bow(text) for text in texts]
 
-# 최적 클러스터 수 결정
+# 엘보우 기법으로 최적 클러스터 수 결정
 def find_optimal_n_topics(X, texts, dictionary, corpus, min_topics=10, max_topics=100, step=10):
-    best_n_topics = min_topics
-    best_silhouette = -1
-    best_coherence = 0
-    print("\n🔍 실루엣 및 Coherence 점수로 최적 클러스터 수 계산 중...")
-    for n_topics in tqdm(range(min_topics, max_topics + 1, step)):
+    perplexities = []
+    coherences = []
+    n_topics_range = list(range(min_topics, max_topics + 1, step))
+    print("\n🔍 엘보우 기법(Perplexity) 및 Coherence 점수로 최적 클러스터 수 계산 중...")
+    
+    for n_topics in tqdm(n_topics_range):
         try:
             lda = LatentDirichletAllocation(
                 n_components=n_topics,
@@ -199,26 +199,42 @@ def find_optimal_n_topics(X, texts, dictionary, corpus, min_topics=10, max_topic
                 random_state=42,
                 n_jobs=1
             )
-            topic_dist = lda.fit_transform(X)
-            silhouette = silhouette_score(X, topic_dist.argmax(axis=1))
+            lda.fit(X)
+            perplexity = lda.perplexity(X)
+            perplexities.append(perplexity)
             
-            # Gensim LDA로 Coherence 계산
+            # Coherence 계산
             topics = []
             for topic in lda.components_:
                 top_words = [vectorizer.get_feature_names_out()[i] for i in topic.argsort()[-10:]]
                 topics.append(top_words)
             coherence_model = CoherenceModel(topics=topics, texts=texts, dictionary=dictionary, coherence='c_v')
             coherence = coherence_model.get_coherence()
+            coherences.append(coherence)
             
-            print(f"n_topics={n_topics}, 실루엣 점수: {silhouette:.4f}, Coherence 점수: {coherence:.4f}")
-            if silhouette > best_silhouette or (silhouette == best_silhouette and coherence > best_coherence):
-                best_silhouette = silhouette
-                best_coherence = coherence
-                best_n_topics = n_topics
+            print(f"n_topics={n_topics}, Perplexity: {perplexity:.2f}, Coherence 점수: {coherence:.4f}")
         except Exception as e:
             print(f"n_topics={n_topics} 계산 오류: {e}")
+            perplexities.append(np.inf)
+            coherences.append(0)
             continue
-    print(f"✅ 최적 클러스터 수: {best_n_topics} (실루엣: {best_silhouette:.4f}, Coherence: {best_coherence:.4f})")
+    
+    # 엘보우 포인트 탐지: Perplexity 감소율 분석
+    if len(perplexities) < 3:
+        best_n_topics = min_topics
+    else:
+        # 감소율 계산
+        slopes = [abs(perplexities[i] - perplexities[i-1]) / step for i in range(1, len(perplexities))]
+        # 감소율이 작아지는 첫 번째 지점 선택
+        elbow_idx = np.argmin(slopes[1:]) + 1 if len(slopes) > 1 else 0
+        best_n_topics = n_topics_range[elbow_idx + 1]
+        
+        # Coherence 점수로 보정: 비슷한 Perplexity에서 Coherence 높은 경우 선택
+        for i in range(max(0, elbow_idx - 1), min(len(perplexities), elbow_idx + 2)):
+            if perplexities[i] < np.inf and coherences[i] > coherences[elbow_idx]:
+                best_n_topics = n_topics_range[i]
+    
+    print(f"✅ 최적 클러스터 수: {best_n_topics} (Perplexity: {perplexities[n_topics_range.index(best_n_topics)]:.2f}, Coherence: {coherences[n_topics_range.index(best_n_topics)]:.4f})")
     return best_n_topics
 
 # 최적 클러스터 수로 LDA 훈련

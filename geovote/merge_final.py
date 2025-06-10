@@ -1,4 +1,5 @@
 # title,bill_id,bill_number,summary,cluster,cluster_keyword 의안 내용 한줄 요약하고 컬럼 구성한 최종 date 출력 
+# 제일 마지막에 사용하는 코드
 import pandas as pd
 import re
 

@@ -118,7 +118,7 @@ def process_csv_file(client, input_path, output_path):
         print(f"❌ CSV 처리 오류: {str(e)}")
 
 if __name__ == "__main__":
-    INPUT_PATH = r"C:\Users\1-02\Desktop\DAMF2\laws-radar\geovote\data\gemini_test.csv"
+    INPUT_PATH = r"C:\Users\1-02\Desktop\DAMF2\laws-radar\geovote\data\bill_filtered_final.csv"
     OUTPUT_PATH = r"C:\Users\1-02\Desktop\DAMF2\laws-radar\geovote\data\processed_bills2_optimized.csv"
     
     gemini_client = initialize_system()

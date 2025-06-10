@@ -1,3 +1,5 @@
+# ~데서 형식으로 요약되는 요약코드
+
 import pandas as pd
 import os
 import time

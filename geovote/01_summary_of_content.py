@@ -1,3 +1,11 @@
+# 의안내용 요약하는 코드
+
+import sys
+from pathlib import Path
+
+# 현재 파일의 상위(부모) 디렉토리(laws-radar)를 sys.path에 추가 (상대경로 방식)
+sys.path.append(str(Path(__file__).resolve().parent.parent))
+
 import pandas as pd
 import time
 import random
@@ -7,6 +15,13 @@ import atexit
 from concurrent.futures import ThreadPoolExecutor
 import google.generativeai as genai
 from google.generativeai import types
+from settings import GEOVOTE_DATA_DIR  # settings.py에서 GEOVOTE_DATA_DIR 임포트
+
+# --- 환경변수 및 dotenv 적용 부분 추가 ---
+import os
+from dotenv import load_dotenv
+
+load_dotenv()  # .env 파일에서 환경변수 불러오기
 
 class GracefulExiter:
     def __init__(self):
@@ -20,7 +35,9 @@ class GracefulExiter:
 
 def initialize_system():
     try:
-        GEMINI_API_KEY = "AIzaSyA8M00iSzCK1Lvc5YfxamYgQf-Lh4xh5R0"
+        GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+        if not GEMINI_API_KEY:
+            raise ValueError("GEMINI_API_KEY 환경변수가 설정되어 있지 않습니다.")
         genai.configure(api_key=GEMINI_API_KEY)
         print("✅ Gemini API 초기화 완료")
         return genai
@@ -30,7 +47,7 @@ def initialize_system():
 
 def emergency_save(df, path):
     try:
-        df.to_csv(path + ".emergency", index=False, encoding='utf-8-sig')
+        df.to_csv(str(path) + ".emergency", index=False, encoding='utf-8-sig')
         print(f"🆘 비상 저장 완료: {path}.emergency")
     except Exception as e:
         print(f"❌ 비상 저장 실패: {str(e)}")
@@ -49,9 +66,7 @@ def correct_spacing_and_spell(text):
         return text
 
 def convert_to_sentence(summary):
-    # 특수문자 제거
     text = re.sub(r'[→·|,]', '', summary).strip()
-    # "함", "강화함", "개선함", "마련함", "중단함", "추진함", "신설함", "삭제함" 등으로 끝나면 그대로, 아니면 '함' 붙이기
     if not re.search(r'(함|강화함|개선함|마련함|중단함|추진함|신설함|삭제함|요)$', text):
         text += '함'
     return text
@@ -105,15 +120,16 @@ def generate_summary(client, original_text, max_retries=5):
             model = client.GenerativeModel('gemini-1.5-flash-latest')
             prompt = f"""
 [법안 요약 규칙]
-1. 반드시 한 문장으로, 핵심만 뽑아 간결하게 요약하세요.
-2. 요약문은 항상 '~을/를 ...함' 또는 '~을/를 ...함'의 형태로 끝나도록 통일하세요.
+1. 반드시 한 문장으로, 핵심 조치와 그 원인(이유, 배경 등)이 모두 포함되도록 간결하게 요약하세요.
+2. 요약문은 항상 '~을/를 [원인/배경/이유]로 인해/에서 기인하여 ~을/를 ...함' 또는 '~을/를 ...함'의 형태로 끝나도록 통일하세요.
 3. '개선함', '강화함', '중단함', '마련함', '추진함', '신설함', '삭제함' 등 정책적 어미를 사용하세요.
 4. 불필요한 수식어, 반복, 배경설명, '관련 개선 방안' 등 넣지 마세요.
 5. 특수문자(→, ·, |, ,) 사용 금지.
 6. 예시:
-- 인사 관련 제도를 개선함
-- 지원 제외 규정을 강화함
-- 중단하는 법안을 마련함
+- 인사 관련 제도를 복잡한 절차로 인해 개선함
+- 지원 제외 규정을 남용 사례 증가로 강화함
+- 불필요한 위원회 운영을 실효성 부족으로 중단함
+- 공사명 변경의 혼란을 방지하기 위해 관련 법안을 마련함
 
 [원문]
 {original_text}
@@ -124,7 +140,7 @@ def generate_summary(client, original_text, max_retries=5):
                 prompt,
                 generation_config=types.GenerationConfig(
                     temperature=0.1,
-                    max_output_tokens=80
+                    max_output_tokens=100
                 )
             )
             summary = parse_gemini_response(response)
@@ -132,7 +148,6 @@ def generate_summary(client, original_text, max_retries=5):
                 raise ValueError("Gemini 응답에서 요약 텍스트를 찾을 수 없음")
             final_text = convert_to_sentence(summary)
             final_text = correct_spacing_and_spell(final_text)
-            # 최종적으로 특수문자 완전 제거
             final_text = re.sub(r'[→·|,]', '', final_text)
             return final_text
         except Exception as e:
@@ -199,8 +214,8 @@ def process_csv_file(client, input_path, output_path, max_workers=4, requests_pe
         emergency_save(df, output_path)
 
 if __name__ == "__main__":
-    INPUT_PATH = r"C:\Users\1-02\Desktop\DAMF2\laws-radar\geovote\data\bill_filtered_final.csv"
-    OUTPUT_PATH = r"C:\Users\1-02\Desktop\DAMF2\laws-radar\geovote\data\processed_bills_optimized_final7.csv"
+    INPUT_PATH = GEOVOTE_DATA_DIR / "bill_filtered_final.csv"
+    OUTPUT_PATH = GEOVOTE_DATA_DIR / "summary_of_content.csv"
     gemini_client = initialize_system()
     if gemini_client:
         process_csv_file(

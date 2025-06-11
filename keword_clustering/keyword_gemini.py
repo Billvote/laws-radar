@@ -15,7 +15,7 @@ from gensim.corpora import Dictionary
 
 tqdm.pandas()
 
-# 1. 사용자 정의 필터 설정 --------------------------------------------------------
+# 사용자 정의 필터 (생략 없이 전체 입력 필요)
 custom_nouns = [
     '대통령비서실', '국가안보실', '대통령경호처', '헌법상대통령자문기구', '국가안전보장회의',
     '민주평화통일자문회의', '국민경제자문회의', '국가과학기술자문회의', '감사원', '국가정보원',
@@ -48,27 +48,24 @@ custom_nouns = [
     '미세먼지', '폐기물처리', '재활용', '순환경제', '젠더평등', '성희롱', '성폭력', '스토킹',
     '가정폭력', '디지털성범죄', '청년정책', '청년고용', '청년주택', '학자금대출', '교육격차',
 ]
-
 initial_stopwords = frozenset({
     '조', '항', '호', '경우', '등', '수', '것', '이', '차', '후', '이상', '이하', '이내',
-    '안', '소', '대', '점', '간', '곳', '해당', '외', '나', '바', '시', '관련', '관하여',
-    '대하여', '따라', '따른', '위하여', '의하여', '때', '각', '자', '인', '내', '중',
-    '때문', '위해', '통해', '부터', '까지', '동안', '사이', '기준', '별도', '별첨', '별표',
-    '제한', '특칙', '가능', '과정', '기반', '기존', '근거', '기능', '방식', '범위', '사항',
-    '시점', '최근', '년', '장', '해', '명', '날', '회', '동', '데', '국', '밖', '속', '식',
-    '규', '현행법', '직', '범', '만', '입', '신',
+        '안', '소', '대', '점', '간', '곳', '해당', '외', '나', '바', '시', '관련', '관하여',
+        '대하여', '따라', '따른', '위하여', '의하여', '때', '각', '자', '인', '내', '중',
+        '때문', '위해', '통해', '부터', '까지', '동안', '사이', '기준', '별도', '별첨', '별표',
+        '제한', '특칙', '가능', '과정', '기반', '기존', '근거', '기능', '방식', '범위', '사항',
+        '시점', '최근', '년', '장', '해', '명', '날', '회', '동', '데', '국', '밖', '속', '식',
+        '규', '현행법', '직', '범', '만', '입', '신',
 })
-
 initial_excluded_terms = frozenset({
     '주요', '수사', '관련', '사항', '정책', '대상', '방안', '추진', '강화', '개선', '지원',
-    '확대', '조치', '필요', '현황', '기반', '과정', '기존', '근거', '기능', '방식', '범위',
-    '활동', '운영', '관리', '실시', '확보', '구성', '설치', '지정', '계획', '수립',
+        '확대', '조치', '필요', '현황', '기반', '과정', '기존', '근거', '기능', '방식', '범위',
+        '활동', '운영', '관리', '실시', '확보', '구성', '설치', '지정', '계획', '수립',
 })
-
 preserve_terms = frozenset({'법률', '법안', '입법', '개정', '제정', '시행', '공포', '폐지', '조례', '규정', '조항', '의결'})
 excluded_bigrams = frozenset({'교육 실시', '징역 벌금', '수립 시행', '운영 관리'})
 
-# 2. 법령 구조 패턴 제거 함수 -----------------------------------------------------
+# 1. 법령 구조 패턴 및 의미 없는 숫자/날짜/형용사 제거
 def remove_law_structure_phrases(text):
     patterns = [
         r'제\d+조의?\d*(?:제\d+항)?(?:제\d+호)?',
@@ -83,31 +80,26 @@ def remove_law_structure_phrases(text):
     text = re.sub(combined, ' ', text)
     return re.sub(r'\s+', ' ', text).strip()
 
-# 3. Gemini 임베딩 생성 함수 -----------------------------------------------------
-def get_gemini_embeddings(texts, model_name="gemini-embedding-exp-03-07", task_type="CLUSTERING", max_workers=1):
+# 2. Gemini 임베딩 생성 함수 (429 방지: 순차+지연)
+def get_gemini_embeddings_safe(texts, model_name="gemini-embedding-exp-03-07", task_type="CLUSTERING"):
     embeddings = []
-    def embed_one(text):
+    for text in tqdm(texts, desc="안전한 임베딩 생성"):
         try:
             response = genai.embed_content(
                 model=model_name,
                 content=text,
                 task_type=task_type
             )
-            return response['embedding']
+            embeddings.append(response['embedding'])
+            time.sleep(1.5)  # 1.5초 간격으로 요청 제한
         except Exception as e:
-            print(f"⚠️ 임베딩 오류: {str(e)[:100]}")
-            return None
-    
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = [executor.submit(embed_one, text) for text in texts]
-        for future in tqdm(as_completed(futures), total=len(futures), desc="Gemini 임베딩 생성"):
-            if (emb := future.result()) is not None:
-                embeddings.append(emb)
-    
-    print(f"✅ 생성된 임베딩 수: {len(embeddings)}")
+            print(f"임베딩 실패: {str(e)}")
+            embeddings.append(None)
+            time.sleep(5)  # 오류 시 5초 추가 대기
+    print(f"✅ 생성된 임베딩 수: {len([e for e in embeddings if e is not None])}")
     return embeddings
 
-# 4. Gemini 전처리 함수 ---------------------------------------------------------
+# 3. Gemini 전처리 함수
 def gemini_tokenize_and_filter(text, model):
     prompt = f"""
 [한국어 지시사항]
@@ -116,7 +108,8 @@ def gemini_tokenize_and_filter(text, model):
 2. 초기 불용어 {list(initial_stopwords)}와 제외 단어 {list(initial_excluded_terms)}는 제거
 3. 제외 바이그램 {list(excluded_bigrams)}는 전체 삭제
 4. 보존 용어 {list(preserve_terms)}는 무조건 유지
-5. 결과를 공백 구분 문자열로 반환
+5. 숫자/날짜/일반형용사(누구나, 지니고 등) 제거
+6. 결과를 공백 구분 문자열로 반환
 
 텍스트:
 {text[:2000]}
@@ -131,25 +124,18 @@ def gemini_tokenize_and_filter(text, model):
             time.sleep(1)
     return ""
 
-def parallel_gemini_tokenize_and_filter(texts, model, max_workers=1):
+def parallel_gemini_tokenize_and_filter(texts, model):
     results = [None] * len(texts)
-    def process_one(i, t):
-        return (i, gemini_tokenize_and_filter(t, model))
-    
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = [executor.submit(process_one, i, t) for i, t in enumerate(texts)]
-        for f in tqdm(as_completed(futures), total=len(futures), desc="Gemini 병렬 전처리"):
-            i, tokens = f.result()
-            results[i] = tokens
-    
+    for i, t in enumerate(tqdm(texts, desc="Gemini 순차 전처리")):
+        results[i] = gemini_tokenize_and_filter(t, model)
+        time.sleep(0.5)
     return results
 
-# 5. LDA 기반 최적 군집수 탐색 ---------------------------------------------------
+# 4. LDA 기반 최적 군집수 탐색 (동일)
 def find_optimal_n_topics_lda_fast(X, texts, dictionary, corpus, vectorizer):
     from sklearn.decomposition import LatentDirichletAllocation
     from sklearn.metrics import silhouette_score
 
-    # 1단계: 대략적 범위 탐색
     n_range_coarse = range(10, 201, 50)
     best_score_coarse = -np.inf
     best_n_coarse = 10
@@ -169,7 +155,6 @@ def find_optimal_n_topics_lda_fast(X, texts, dictionary, corpus, vectorizer):
             best_score_coarse = silhouette
             best_n_coarse = n_topics
 
-    # 2단계: 상세 범위 탐색
     start = max(10, best_n_coarse - 40)
     end = min(200, best_n_coarse + 40)
     n_range_fine = range(start, end+1, 10)
@@ -194,7 +179,6 @@ def find_optimal_n_topics_lda_fast(X, texts, dictionary, corpus, vectorizer):
             n = futures[future]
             models[n] = future.result()
 
-    # 최적 모델 선정
     best_score = -np.inf
     best_n = 10
     for n, model in models.items():
@@ -206,13 +190,12 @@ def find_optimal_n_topics_lda_fast(X, texts, dictionary, corpus, vectorizer):
 
     return best_n
 
-# 6. Gemini 기반 군집수 결정 -----------------------------------------------------
+# 5. Gemini 기반 군집수 결정 (동일)
 def get_optimal_clusters_with_gemini(embeddings, sample_texts, model):
     prompt = f'''[한국어 지시사항]
 샘플 텍스트: {sample_texts[:2000]}
 최적 클러스터 수 1개 추천 (10~200):
 {{"optimal_clusters": 정수}}'''
-    
     for _ in range(3):
         try:
             response = model.generate_content(prompt)
@@ -223,36 +206,62 @@ def get_optimal_clusters_with_gemini(embeddings, sample_texts, model):
             time.sleep(1)
     return None
 
-# 7. 클러스터 키워드 추출 --------------------------------------------------------
+# 6. 클러스터 키워드 추출 (2~10글자 명사, -1도 개별 추출)
+def extract_core_keywords(keywords):
+    """2~10글자 한글 명사만 추출"""
+    result = []
+    for kw in keywords:
+        # 2~10글자 한글 명사 추출
+        if re.fullmatch(r'[가-힣]{2,10}', kw):
+            result.append(kw)
+    return list(dict.fromkeys(result))[:4]  # 중복 제거, 4개 제한
+
 def gemini_cluster_keywords(cluster_id, texts, model):
     prompt = f'''[한국어 지시사항]
 법안 샘플: {texts[:2000]}
-4개 키워드 추출:
-- 법률 조문/정책명 우선
-- JSON 배열로만 반환'''
-    
+2~4개 핵심 키워드 추출:
+- 2~10글자 한글 명사만
+- 복합명사는 2개 단어로 분할 (예: "인사행정개선" → "인사행정", "행정개선")
+- JSON 배열로 반환'''
     for _ in range(3):
         try:
             response = model.generate_content(prompt)
             if (match := re.search(r'\[".*?"(?:,\s*".*?")*\]', response.text)):
-                return json.loads(match.group(0))[:4]
+                raw_keywords = json.loads(match.group(0))
+                return extract_core_keywords(raw_keywords)
         except Exception as e:
             print(f"⚠️ 키워드 추출 오류 (클러스터 {cluster_id}): {str(e)}")
             time.sleep(1)
-    
-    # Fallback
-    vectorizer = TfidfVectorizer(max_features=20)
+    # Fallback: TF-IDF + 명사 필터
+    vectorizer = TfidfVectorizer(token_pattern=r'(?u)\b[가-힣]{2,10}\b', max_features=20)
     X = vectorizer.fit_transform([texts])
-    return vectorizer.get_feature_names_out()[:4].tolist()
+    return extract_core_keywords(vectorizer.get_feature_names_out()[:4].tolist())
 
-# 8. 메인 실행 로직 --------------------------------------------------------------
+def extract_keywords_for_single_doc(text, model):
+    prompt = f'''
+아래 법안 텍스트에서 2~10글자 한글 명사만 골라 2~4개 핵심 키워드(JSON 배열, 예: ["공무원비위", "의원면직"])로 반환:
+{text[:2000]}
+'''
+    for _ in range(3):
+        try:
+            response = model.generate_content(prompt)
+            match = re.search(r'\[".*?"(?:,\s*".*?")*\]', response.text)
+            if match:
+                raw_keywords = json.loads(match.group(0))
+                return extract_core_keywords(raw_keywords)
+        except Exception:
+            time.sleep(1)
+    # Fallback: TF-IDF
+    vectorizer = TfidfVectorizer(token_pattern=r'(?u)\b[가-힣]{2,10}\b', max_features=10)
+    X = vectorizer.fit_transform([text])
+    return extract_core_keywords(vectorizer.get_feature_names_out()[:4].tolist())
+
+# 7. 메인 실행 로직
 if __name__ == '__main__':
-    # 초기화
-    GEMINI_API_KEY = "AIzaSyA8M00iSzCK1Lvc5YfxamYgQf-Lh4xh5R0"
+    GEMINI_API_KEY = "여기에_실제_API키_입력"
     genai.configure(api_key=GEMINI_API_KEY)
     model = genai.GenerativeModel('gemini-1.5-pro-latest')
 
-    # 데이터 로드
     file_path = Path(r"C:/Users/1-02/Desktop/DAMF2/laws-radar/geovote/data/bill_filtered_final.csv")
     df = pd.read_csv(file_path, encoding='utf-8-sig')
 
@@ -261,38 +270,34 @@ if __name__ == '__main__':
     df['content'] = df['content'].apply(remove_law_structure_phrases)
 
     print("🔄 Gemini 전처리 중...")
-    df['content'] = parallel_gemini_tokenize_and_filter(df['content'].tolist(), model, 1)
+    df['content'] = parallel_gemini_tokenize_and_filter(df['content'].tolist(), model)
 
     # 2. 임베딩 (유효한 데이터 필터링)
     print("🔄 임베딩 생성 중...")
-    embeddings = get_gemini_embeddings(df['content'].tolist())
-    
-    # 유효한 인덱스 추출
+    embeddings = get_gemini_embeddings_safe(df['content'].tolist())
+
     valid_indices = [i for i, emb in enumerate(embeddings) if emb is not None]
     filtered_df = df.iloc[valid_indices].copy()
     valid_embeddings = np.array([emb for emb in embeddings if emb is not None])
 
-    # ▼▼▼ 수정된 부분: 배열 크기 확인 ▼▼▼
     if valid_embeddings.size == 0:
         print("❌ 임베딩 실패: 생성된 임베딩이 없습니다")
         sys.exit(1)
-    # ▲▲▲
 
     # 3. 군집수 결정
     print("🔎 군집수 분석 중...")
     n_clusters = get_optimal_clusters_with_gemini(
-        valid_embeddings, 
-        ' '.join(filtered_df.sample(min(100, len(filtered_df)))['content']), 
+        valid_embeddings,
+        ' '.join(filtered_df.sample(min(100, len(filtered_df)))['content']),
         model
     )
-    
     if not n_clusters:
         print("⚠️ LDA 방식으로 전환")
         vectorizer = TfidfVectorizer(max_df=0.7, min_df=5, ngram_range=(1,3), max_features=5000)
         X = vectorizer.fit_transform(filtered_df['content'])
         texts = [doc.split() for doc in filtered_df['content']]
         n_clusters = find_optimal_n_topics_lda_fast(X, texts, Dictionary(texts), [], vectorizer)
-    
+
     n_samples = len(valid_embeddings)
     n_clusters = min(n_clusters, n_samples)
     print(f"✅ 최종 군집수: {n_clusters} (샘플 수: {n_samples})")
@@ -301,26 +306,27 @@ if __name__ == '__main__':
     print("🔄 클러스터링 중...")
     filtered_df['topic'] = KMeans(n_clusters=n_clusters, random_state=42).fit_predict(valid_embeddings)
 
-    # 5. 원본 데이터프레임에 병합
+    # 5. 원본 데이터프레임에 병합 (누락 문서도 포함)
     df = df.merge(filtered_df[['topic']], how='left', left_index=True, right_index=True)
     df.rename(columns={'topic_y': 'topic'}, inplace=True)
-    df['topic'] = df['topic'].fillna(-1).astype(int)  # 임베딩 실패 행은 -1로 표시
+    df['topic'] = df['topic'].fillna(-1).astype(int)
 
-    # 6. 키워드 추출
+    # 6. 키워드 추출 (정상 클러스터 + -1 문서 개별 추출)
     print("🔄 키워드 추출 중...")
-    cluster_texts = filtered_df.groupby('topic')['content'].apply(lambda x: ' '.join(x.sample(min(10, len(x)))))
     topic_labels = {}
-    
-    with ThreadPoolExecutor(1) as executor:
-        futures = {executor.submit(gemini_cluster_keywords, cid, txt, model): cid 
-                  for cid, txt in cluster_texts.items()}
-        for future in tqdm(as_completed(futures), total=len(futures)):
-            cid = futures[future]
-            topic_labels[cid] = future.result()
-            print(f"✅ 클러스터 {cid} 키워드: {topic_labels[cid]}")
+    # 정상 클러스터
+    cluster_texts = df[df['topic'] != -1].groupby('topic')['content'].apply(lambda x: ' '.join(x.sample(min(10, len(x)))))
+    for cid, txt in tqdm(cluster_texts.items(), total=len(cluster_texts)):
+        topic_labels[cid] = gemini_cluster_keywords(cid, txt, model)
+    # -1 클러스터 개별 추출
+    for idx, row in tqdm(df[df['topic'] == -1].iterrows(), total=(df['topic'] == -1).sum()):
+        keywords = extract_keywords_for_single_doc(row['content'], model)
+        topic_labels[-1 * (idx+2)] = keywords  # 각 문서별 고유 음수 토픽ID
+        df.at[idx, 'topic'] = -1 * (idx+2)  # 각 문서별로 고유하게
 
     # 7. 결과 병합
-    df['topic_label'] = df['topic'].map(lambda x: ', '.join(topic_labels.get(x, ['기타'])))
+    df['topic_label'] = df['topic'].map(lambda x: ', '.join(topic_labels.get(x, [])))
+    df = df[df['topic_label'] != '']  # 빈 레이블 제거
 
     # 8. 저장
     output_path = Path('data/bill_gemini_clustering.csv')

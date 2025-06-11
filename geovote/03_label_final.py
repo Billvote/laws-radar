@@ -1,10 +1,15 @@
 # 라벨링 작업 하는 코드
+# merge.py 사용 후 제일 마지막에 사용하는 코드
+
 import pandas as pd
 import re
+from pathlib import Path
 
-# 파일 경로
-file_path = r"C:\Users\1-02\Desktop\DAMF2\laws-radar\geovote\data\merged_bill_data.csv"
-output_path = file_path.replace('.csv', '_labeled.csv')
+# 현재 파일 기준으로 상대경로 설정
+BASE_DIR = Path(__file__).resolve().parent.parent  # laws-radar 기준
+DATA_DIR = BASE_DIR / "geovote" / "data"
+file_path = DATA_DIR / "merged_bill_data.csv"
+output_path = DATA_DIR / "merged_bill_data_labeled.csv"
 
 # CSV 파일 로드 (인코딩 자동 처리)
 try:

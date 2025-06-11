@@ -1,12 +1,12 @@
 # title,bill_id,bill_number,summary,cluster,cluster_keyword 의안 내용 한줄 요약하고 컬럼 구성한 최종 date 출력 
-# 제일 마지막에 사용하는 코드
+
 import pandas as pd
 import re
 
 # 파일 경로 설정
 base_file_path = r"C:\Users\1-02\Desktop\DAMF2\laws-radar\geovote\data\bill_filtered_final.csv"
 cluster_file_path = r"C:\Users\1-02\Desktop\DAMF2\laws-radar\keword_clustering\data\bill_keyword_clustering.csv"
-summary_file_path = r"C:\Users\1-02\Desktop\DAMF2\laws-radar\geovote\data\gemini_processed_bills.csv"
+summary_file_path = r"C:\Users\1-02\Desktop\DAMF2\laws-radar\geovote\data\summary_of_content.csv"
 output_path = r"C:\Users\1-02\Desktop\DAMF2\laws-radar\geovote\data\merged_bill_data.csv"
 
 # 1. 파일 읽기

@@ -1,5 +1,3 @@
-# title,bill_id,bill_number,summary,cluster,cluster_keyword 의안 내용 한줄 요약하고 컬럼 구성한 최종 date 출력 
-
 import pandas as pd
 import re
 
@@ -20,14 +18,17 @@ summary_df = summary_df.rename(columns={'content': 'summary'})  # content → su
 
 # 3. 필요한 컬럼만 추출
 base_columns = ['age', 'title', 'bill_id', 'bill_number']
-cluster_columns = ['bill_id', 'cluster', 'cluster_keyword']
+cluster_columns = ['bill_id', 'cluster', 'cluster_keyword', 'content']  # content 컬럼 추가
 summary_columns = ['bill_id', 'summary']
 
 base_df = base_df[base_columns]
 cluster_df = cluster_df[cluster_columns]
 summary_df = summary_df[summary_columns]
 
-# 4. 데이터 병합
+# 4. content 컬럼을 cleaned로 변경
+cluster_df = cluster_df.rename(columns={'content': 'cleaned'})
+
+# 5. 데이터 병합
 merged_df = pd.merge(
     base_df,
     cluster_df,
@@ -41,7 +42,7 @@ merged_df = pd.merge(
     how='left'
 )
 
-# 5. cluster_keyword에서 숫자와 쌍따옴표, 괄호만 제거하고 키워드만 남기기
+# 6. cluster_keyword에서 숫자와 쌍따옴표, 괄호만 제거하고 키워드만 남기기
 def format_keywords(x):
     if pd.isna(x): 
         return '[]'
@@ -60,12 +61,14 @@ def format_keywords(x):
 
 merged_df['cluster_keyword'] = merged_df['cluster_keyword'].apply(format_keywords)
 
-# 6. 최종 컬럼 순서 지정
-final_columns = ['age', 'title', 'bill_id', 'bill_number', 'summary', 'cluster', 'cluster_keyword']
+# 7. 최종 컬럼 순서 지정 (cleaned 컬럼 추가)
+final_columns = ['age', 'title', 'bill_id', 'bill_number', 'cleaned', 'summary', 'cluster', 'cluster_keyword']
 result_df = merged_df[final_columns]
 
-# 7. 결과 저장
+# 8. 결과 저장
 result_df.to_csv(output_path, index=False, encoding='utf-8-sig')
 
-# 8. 결과 미리보기
+# 9. 결과 미리보기
 print(result_df.head())
+print(f"\n총 {len(result_df)}개의 데이터가 처리되었습니다.")
+print(f"결과 파일이 {output_path}에 저장되었습니다.")

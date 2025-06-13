@@ -36,9 +36,9 @@ file_path = settings.BASE_DIR / 'geovote' / 'data' / 'merged_bill_data_labeled.c
 df = pd.read_csv(file_path)
 
 merged_df = pd.merge(unique_df, df, how='inner', on='bill_id')
+merged_df = merged_df[['age', 'title', 'bill_id', 'bill_number', 'cleaned', 'summary', 'cluster', 'cluster_keyword', 'label', 'url']]
 
-output_path = settings.BASE_DIR / 'result_vote' / 'data' / 'urls.csv'
-merged_df.to_csv(output_path, index=False, na_rep='NULL')
+# output_path = settings.BASE_DIR / 'result_vote' / 'data' / 'urls(1).csv'
+# merged_df.to_csv(output_path, index=False, na_rep='NULL')
 
-# print(merged_df.info())
-# print(merged_df.columns)
+# print(merged_df.isna().value_counts())

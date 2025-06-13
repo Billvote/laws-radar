@@ -3,7 +3,7 @@ import re
 
 # 파일 경로 설정
 base_file_path = r"C:\Users\1-02\Desktop\DAMF2\laws-radar\geovote\data\bill_filtered_final.csv"
-cluster_file_path = r"C:\Users\1-02\Desktop\DAMF2\laws-radar\keword_clustering\data\bill_keyword_clustering.csv"
+cluster_file_path = r"C:\Users\1-02\Desktop\DAMF2\laws-radar\keword_clustering\data\keyword_gemini.csv"
 summary_file_path = r"C:\Users\1-02\Desktop\DAMF2\laws-radar\geovote\data\summary_of_content.csv"
 output_path = r"C:\Users\1-02\Desktop\DAMF2\laws-radar\geovote\data\merged_bill_data.csv"
 

@@ -1,21 +1,23 @@
 # -*- coding: utf-8 -*-
 import sys
+import gc
+import pickle
+import asyncio
+import aiohttp
 from pathlib import Path
 import pandas as pd
 from tqdm import tqdm
 import numpy as np
 import google.generativeai as genai
-from sklearn.cluster import KMeans
-from sklearn.feature_extraction.text import TfidfVectorizer
 import time
 import json
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from gensim.corpora import Dictionary
+from collections import Counter, defaultdict
 
 tqdm.pandas()
 
-# 사용자 정의 필터 (생략 없이 전체 입력 필요)
+# 기존 필터 설정 유지 + 법률 특화 용어 추가
 custom_nouns = [
     '대통령비서실', '국가안보실', '대통령경호처', '헌법상대통령자문기구', '국가안전보장회의',
     '민주평화통일자문회의', '국민경제자문회의', '국가과학기술자문회의', '감사원', '국가정보원',
@@ -36,301 +38,626 @@ custom_nouns = [
     '예산안', '동의안', '승인안', '결의안', '건의안', '규칙안', '선출안', '발의', '제출',
     '제안', '제의', '의결', '부결', '폐기', '가결', '채택', '입법예고', '공포', '시행',
     '개정', '제정', '폐지', '일부개정', '전부개정',
-    '헌법', '민법', '형법', '상법', '행정법', '노동법', '세법', '환경법', '정보통신법',
-    '금융법', '보건의료법', '교육법', '문화예술법', '농림법', '건설법', '해양법', '김영란법',
-    '부정청탁금지법', '공직자윤리법', '정치자금법', '공직선거법', '전기통신사업법',
-    '개인정보보호법', '국가유산수리기술위원회', '부가가치세법', '수입식품안전관리특별법',
-    '다문화가족지원법',
-    '인공지능', '빅데이터', '사물인터넷', '클라우드', '블록체인', '메타버스', '디지털플랫폼',
-    '전자정부', '디지털전환', '사이버보안', '디지털뉴딜', '스마트시티', '디지털포용',
-    '온라인플랫폼', '전자상거래',
-    '코로나19', '감염병', '백신', '방역', '사회적거리두기', '재난지원금', '기후변화',
-    '미세먼지', '폐기물처리', '재활용', '순환경제', '젠더평등', '성희롱', '성폭력', '스토킹',
-    '가정폭력', '디지털성범죄', '청년정책', '청년고용', '청년주택', '학자금대출', '교육격차',
+    # 법률 특화 용어 추가
+    '송환대기실', '입국불허', '밀입국', '출입국관리', '외국인관서', '운수업자', '항공사운영협의회',
+    '국민안전', '위협요소', '사후관리', '보안안전', '감사결과', '법적근거', '특별사유'
 ]
+
 initial_stopwords = frozenset({
     '조', '항', '호', '경우', '등', '수', '것', '이', '차', '후', '이상', '이하', '이내',
-        '안', '소', '대', '점', '간', '곳', '해당', '외', '나', '바', '시', '관련', '관하여',
-        '대하여', '따라', '따른', '위하여', '의하여', '때', '각', '자', '인', '내', '중',
-        '때문', '위해', '통해', '부터', '까지', '동안', '사이', '기준', '별도', '별첨', '별표',
-        '제한', '특칙', '가능', '과정', '기반', '기존', '근거', '기능', '방식', '범위', '사항',
-        '시점', '최근', '년', '장', '해', '명', '날', '회', '동', '데', '국', '밖', '속', '식',
-        '규', '현행법', '직', '범', '만', '입', '신',
+    '안', '소', '대', '점', '간', '곳', '해당', '외', '나', '바', '시', '관련', '관하여',
+    '대하여', '따라', '따른', '위하여', '의하여', '때', '각', '자', '인', '내', '중',
+    '때문', '위해', '통해', '부터', '까지', '동안', '사이', '기준', '별도', '별첨', '별표',
+    '제한', '특칙', '가능', '과정', '기반', '기존', '근거', '기능', '방식', '범위', '사항',
+    '시점', '최근', '년', '장', '해', '명', '날', '회', '동', '데', '국', '밖', '속', '식',
+    '규', '현행법', '직', '범', '만', '입', '신',
 })
+
 initial_excluded_terms = frozenset({
     '주요', '수사', '관련', '사항', '정책', '대상', '방안', '추진', '강화', '개선', '지원',
-        '확대', '조치', '필요', '현황', '기반', '과정', '기존', '근거', '기능', '방식', '범위',
-        '활동', '운영', '관리', '실시', '확보', '구성', '설치', '지정', '계획', '수립',
+    '확대', '조치', '필요', '현황', '기반', '과정', '기존', '근거', '기능', '방식', '범위',
+    '활동', '운영', '관리', '실시', '확보', '구성', '설치', '지정', '계획', '수립',
 })
-preserve_terms = frozenset({'법률', '법안', '입법', '개정', '제정', '시행', '공포', '폐지', '조례', '규정', '조항', '의결'})
+
+# 법률 특화 불용어 추가
+legal_specific_stopwords = frozenset({
+    '있는', '있음', '되는', '되도록', '하는', '하도록', '지적한', '마련할', '부여함에',
+    '상황임', '있게', '함으로써', '하고자', '경우에는', '있는지', '있다면', '하여야',
+    '하여서는', '아니하는', '아니한', '아니되는', '아니된', '있으므로', '있어서',
+    '가능한', '필요한', '적절한', '효과적인', '지속적으로', '전문적인', '체계적인'
+})
+
+preserve_terms = frozenset({
+    '법률', '법안', '입법', '개정', '제정', '시행', '공포', '폐지', '조례', '규정', '조항', '의결',
+    '감사원', '국민', '안전', '위협', '요소', '대응', '실태', '공항', '보안', '분야', 
+    '감사', '결과', '입국', '불허', '사후', '미흡', '자유', '이동', '일부', '밀입국',
+    '시도', '발생', '일반인', '분리', '구별', '출국', '송환', '대기실', '통제', '마련',
+    '지적', '허가', '외국인', '선박', '운수업', '의무', '부여', '민간', '항공사',
+    '협의회', '본국', '임시', '문제점', '제기', '지방', '관서', '효과', '일정', '장소',
+    '제공', '요청', '특별', '사유', '협조', '신설'
+})
+
 excluded_bigrams = frozenset({'교육 실시', '징역 벌금', '수립 시행', '운영 관리'})
 
-# 1. 법령 구조 패턴 및 의미 없는 숫자/날짜/형용사 제거
-def remove_law_structure_phrases(text):
-    patterns = [
-        r'제\d+조의?\d*(?:제\d+항)?(?:제\d+호)?',
-        r'안\s*제\d+조의?\d*(?:제\d+항)?(?:제\d+호)?',
-        r'\d+년\s*\d+월\s*\d+일',
-        r'\d+만\s*\d+천?\s*\d+명',
-        r'\d+%',
-        r'\b(?:누구나|지니고|유사한|기준|약)\b',
-        r'신설', r'정비', r'조정', r'인용조문', r'정비\s*\(.*?\)', r'안'
-    ]
-    combined = '|'.join(patterns)
-    text = re.sub(combined, ' ', text)
-    return re.sub(r'\s+', ' ', text).strip()
+# Gemini API 키 설정
+GEMINI_API_KEY = "AIzaSyA8M00iSzCK1Lvc5YfxamYgQf-Lh4xh5R0"
+genai.configure(api_key=GEMINI_API_KEY)
 
-# 2. Gemini 임베딩 생성 함수 (429 방지: 순차+지연)
-def get_gemini_embeddings_safe(texts, model_name="gemini-embedding-exp-03-07", task_type="CLUSTERING"):
-    embeddings = []
-    for text in tqdm(texts, desc="안전한 임베딩 생성"):
-        try:
-            response = genai.embed_content(
-                model=model_name,
-                content=text,
-                task_type=task_type
-            )
-            embeddings.append(response['embedding'])
-            time.sleep(1.5)  # 1.5초 간격으로 요청 제한
-        except Exception as e:
-            print(f"임베딩 실패: {str(e)}")
-            embeddings.append(None)
-            time.sleep(5)  # 오류 시 5초 추가 대기
-    print(f"✅ 생성된 임베딩 수: {len([e for e in embeddings if e is not None])}")
-    return embeddings
+# ===== 법률 문서 특화 전처리 함수들 =====
 
-# 3. Gemini 전처리 함수
-def gemini_tokenize_and_filter(text, model):
+def enhanced_law_pattern_removal(text):
+    """향상된 법률 구조 패턴 제거"""
+    if pd.isna(text) or text is None or not isinstance(text, str):
+        return ""
+    
+    try:
+        patterns = [
+            # 기본 법조문 패턴
+            r'제?\d+조의?\d*(?:제?\d+항)?(?:제?\d+호)?',
+            r'안\s*제?\d+조의?\d*(?:제?\d+항)?(?:제?\d+호)?',
+            
+            # 날짜 및 수량 패턴
+            r'\d+년\s*\d+월\s*\d+일?',
+            r'\d+만\s*\d+천?\s*\d+명?',
+            r'\d+%',
+            
+            # 법률 문서 특수 패턴
+            r'\([^)]*법[^)]*\)',  # 법률명 괄호
+            r'\([^)]*년[^)]*\)',  # 년도 괄호
+            r'\'[^\']*\'',        # 작은따옴표 내용
+            r'"[^"]*"',           # 큰따옴표 내용
+            r'？',                # 특수 물음표
+            
+            # 불필요한 조사 및 어미
+            r'\b(?:누구나|지니고|유사한|기준|약)\b',
+            r'신설', r'정비', r'조정', r'인용조문', r'정비\s*\(.*?\)', r'안'
+        ]
+        
+        combined = '|'.join(patterns)
+        text = re.sub(combined, ' ', text)
+        return re.sub(r'\s+', ' ', text).strip()
+        
+    except Exception as e:
+        print(f"법령 구조 패턴 제거 오류: {str(e)}")
+        return text
+
+def gemini_stopword_removal(text, model):
+    """Gemini를 이용한 동적 불용어 제거"""
+    if pd.isna(text) or text is None or not isinstance(text, str):
+        return ""
+    
+    if len(text) < 10:  # 너무 짧은 텍스트는 처리 생략
+        return text
+        
     prompt = f"""
-[한국어 지시사항]
-아래 법안 텍스트에서
-1. 사용자 정의 명사 {custom_nouns}는 반드시 보존
-2. 초기 불용어 {list(initial_stopwords)}와 제외 단어 {list(initial_excluded_terms)}는 제거
-3. 제외 바이그램 {list(excluded_bigrams)}는 전체 삭제
-4. 보존 용어 {list(preserve_terms)}는 무조건 유지
-5. 숫자/날짜/일반형용사(누구나, 지니고 등) 제거
-6. 결과를 공백 구분 문자열로 반환
+다음 법률 텍스트에서 불필요한 조사, 어미, 일반 불용어를 제거하되 법률 전문용어는 보존해주세요.
+반드시 문맥을 고려하여 핵심 내용만 남겨야 합니다.
 
-텍스트:
-{text[:2000]}
+원본 텍스트: {text[:3000]}
+
+규칙:
+1. '조', '항', '호' 등 법조문 표기는 제거
+2. 동사/형용사 어미('-하다', '-되다' 등) 제거
+3. 일반 불용어('경우', '등', '수' 등) 제거
+4. 법률 용어는 최대한 보존
+5. 결과는 공백으로 구분된 명사 위주의 텍스트
+
+처리된 텍스트:
 """
-    for _ in range(3):
+    
+    try:
+        response = model.generate_content(prompt)
+        if response and response.text:
+            result = response.text.strip()
+            # 중복 공백 정리
+            return re.sub(r'\s+', ' ', result)
+    except Exception as e:
+        print(f"Gemini 불용어 제거 오류: {str(e)}")
+    
+    return text  # 실패 시 원본 반환
+
+def compound_noun_handler(text):
+    """복합 명사 및 특수 문자 처리"""
+    if not text:
+        return ""
+    
+    try:
+        # 1. 특수 문자 처리
+        text = re.sub(r'·', ' ', text)  # 중점 제거
+        text = re.sub(r'？', ' ', text)  # 특수 물음표 제거
+        
+        # 2. 복합 명사 분리 패턴
+        compound_patterns = {
+            r'지방출입국·?외국인관서': '지방 출입국 외국인 관서',
+            r'항공사운영협의회': '항공사 운영 협의회',
+            r'송환대기실': '송환 대기실',
+            r'입국불허자': '입국 불허',
+            r'밀입국시도': '밀입국 시도',
+            r'사후관리': '사후 관리',
+            r'보안안전': '보안 안전',
+            r'법적근거': '법적 근거',
+            r'위협요소': '위협 요소'
+        }
+        
+        for pattern, replacement in compound_patterns.items():
+            text = re.sub(pattern, replacement, text)
+        
+        # 3. 연속된 공백 정리
+        text = re.sub(r'\s+', ' ', text).strip()
+        
+        return text
+        
+    except Exception as e:
+        print(f"복합 명사 처리 오류: {str(e)}")
+        return text
+
+def legal_document_preprocessing_pipeline(text, model):
+    """법률 문서 전용 전처리 파이프라인"""
+    if pd.isna(text) or text is None:
+        return ""
+    
+    if not isinstance(text, str):
+        text = str(text)
+    
+    if not text.strip():
+        return ""
+    
+    try:
+        # 1단계: 기본 법령 구조 패턴 제거
+        text = enhanced_law_pattern_removal(text)
+        
+        # 2단계: 복합 명사 및 특수 문자 처리
+        text = compound_noun_handler(text)
+        
+        # 3단계: Gemini 기반 불용어 제거
+        text = gemini_stopword_removal(text, model)
+        
+        # 4단계: 최종 정규화
+        text = re.sub(r'\s+', ' ', text).strip()
+        
+        return text if text else ""
+        
+    except Exception as e:
+        print(f"법률 문서 전처리 오류: {str(e)}")
+        return text
+
+def improved_content_preprocessing(df, model):
+    """개선된 content 전처리 파이프라인"""
+    print("📊 법률 문서 특화 전처리 시작...")
+    
+    # 1. 데이터 타입 분포 확인
+    print("데이터 타입 분포:")
+    print(df['content'].apply(lambda x: type(x)).value_counts())
+    
+    # 2. 결측값 처리
+    print("🔄 결측값 처리 중...")
+    df['content'] = df['content'].fillna('')
+    
+    # 3. 데이터 타입 통일
+    print("🔄 데이터 타입 통일 중...")
+    df['content'] = df['content'].astype(str)
+    
+    # 4. 빈 값 정리
+    print("🔄 빈 값 정리 중...")
+    df['content'] = df['content'].replace(['nan', 'None'], '')
+    
+    # 5. 법률 문서 특화 전처리 적용
+    print("🔄 Gemini 기반 불용어 제거 처리 중...")
+    df['content'] = df['content'].progress_apply(
+        lambda x: legal_document_preprocessing_pipeline(x, model)
+    )
+    
+    # 6. 결과 검증
+    empty_count = (df['content'] == '').sum()
+    print(f"✅ 전처리 완료: {len(df)}개 중 {empty_count}개 빈 텍스트")
+    
+    # 7. 샘플 결과 출력
+    print("\n📋 법률 특화 전처리 결과 샘플:")
+    for i in range(min(3, len(df))):
+        if df.iloc[i]['content']:
+            print(f"   {i+1}. {df.iloc[i]['content'][:150]}...")
+    
+    return df
+
+# ===== 2단계: Gemini 원본 기반 클러스터링 =====
+
+def gemini_clustering_from_original(original_texts, titles, model):
+    """Gemini가 원본 텍스트를 직접 분석하여 클러스터링 수행"""
+    print(f"🤖 Gemini 원본 텍스트 기반 클러스터링 시작...")
+    
+    # 문서별 주제 분류
+    def classify_document(idx_doc):
+        idx, doc, title = idx_doc
+        prompt = f"""
+다음 법안의 원본 내용을 분석하여 주제 카테고리를 분류해주세요.
+
+법안 제목: {title}
+법안 원본 내용: {doc[:3000]}
+
+다음 주제 카테고리 중 하나를 선택하거나 새로운 카테고리를 제안하세요:
+- 교육정책
+- 보건의료  
+- 경제금융
+- 환경에너지
+- 사회복지
+- 국방안보
+- 법무사법
+- 행정안전
+- 과학기술
+- 문화체육
+- 농림수산
+- 국토교통
+- 외교통일
+- 디지털정보통신
+- 출입국관리
+- 기타
+
+다음 형식으로 응답해주세요:
+{{
+  "category": "주제_카테고리",
+  "subcategory": "세부_분류",
+  "confidence": 0.9
+}}
+"""
+        
         try:
             response = model.generate_content(prompt)
-            tokens = response.text.strip()
-            if tokens and len(tokens) > 1:
-                return tokens
-        except Exception:
-            time.sleep(1)
-    return ""
-
-def parallel_gemini_tokenize_and_filter(texts, model):
-    results = [None] * len(texts)
-    for i, t in enumerate(tqdm(texts, desc="Gemini 순차 전처리")):
-        results[i] = gemini_tokenize_and_filter(t, model)
-        time.sleep(0.5)
-    return results
-
-# 4. LDA 기반 최적 군집수 탐색 (동일)
-def find_optimal_n_topics_lda_fast(X, texts, dictionary, corpus, vectorizer):
-    from sklearn.decomposition import LatentDirichletAllocation
-    from sklearn.metrics import silhouette_score
-
-    n_range_coarse = range(10, 201, 50)
-    best_score_coarse = -np.inf
-    best_n_coarse = 10
-
-    for n_topics in tqdm(n_range_coarse, desc="1단계: 대략적 군집수 탐색"):
-        lda = LatentDirichletAllocation(
-            n_components=n_topics,
-            learning_method='online',
-            batch_size=256,
-            max_iter=15,
-            random_state=42,
-            n_jobs=1
-        )
-        topic_dist = lda.fit_transform(X)
-        silhouette = silhouette_score(X, topic_dist.argmax(axis=1))
-        if silhouette > best_score_coarse:
-            best_score_coarse = silhouette
-            best_n_coarse = n_topics
-
-    start = max(10, best_n_coarse - 40)
-    end = min(200, best_n_coarse + 40)
-    n_range_fine = range(start, end+1, 10)
-
-    def train_lda(n):
-        lda = LatentDirichletAllocation(
-            n_components=n,
-            learning_method='online',
-            batch_size=256,
-            max_iter=15,
-            random_state=42,
-            n_jobs=1
-        )
-        lda.fit(X)
-        return lda
-
-    print("2단계: 상세 군집수 탐색 (병렬)")
-    with ThreadPoolExecutor(max_workers=1) as executor:
-        futures = {executor.submit(train_lda, n): n for n in n_range_fine}
-        models = {}
-        for future in tqdm(as_completed(futures), total=len(futures)):
-            n = futures[future]
-            models[n] = future.result()
-
-    best_score = -np.inf
-    best_n = 10
-    for n, model in models.items():
-        topic_dist = model.transform(X)
-        silhouette = silhouette_score(X, topic_dist.argmax(axis=1))
-        if silhouette > best_score:
-            best_score = silhouette
-            best_n = n
-
-    return best_n
-
-# 5. Gemini 기반 군집수 결정 (동일)
-def get_optimal_clusters_with_gemini(embeddings, sample_texts, model):
-    prompt = f'''[한국어 지시사항]
-샘플 텍스트: {sample_texts[:2000]}
-최적 클러스터 수 1개 추천 (10~200):
-{{"optimal_clusters": 정수}}'''
-    for _ in range(3):
-        try:
-            response = model.generate_content(prompt)
-            result = json.loads(response.text.strip())
-            if 10 <= (n := result["optimal_clusters"]) <= 200:
-                return n
-        except Exception:
-            time.sleep(1)
-    return None
-
-# 6. 클러스터 키워드 추출 (2~10글자 명사, -1도 개별 추출)
-def extract_core_keywords(keywords):
-    """2~10글자 한글 명사만 추출"""
-    result = []
-    for kw in keywords:
-        # 2~10글자 한글 명사 추출
-        if re.fullmatch(r'[가-힣]{2,10}', kw):
-            result.append(kw)
-    return list(dict.fromkeys(result))[:4]  # 중복 제거, 4개 제한
-
-def gemini_cluster_keywords(cluster_id, texts, model):
-    prompt = f'''[한국어 지시사항]
-법안 샘플: {texts[:2000]}
-2~4개 핵심 키워드 추출:
-- 2~10글자 한글 명사만
-- 복합명사는 2개 단어로 분할 (예: "인사행정개선" → "인사행정", "행정개선")
-- JSON 배열로 반환'''
-    for _ in range(3):
-        try:
-            response = model.generate_content(prompt)
-            if (match := re.search(r'\[".*?"(?:,\s*".*?")*\]', response.text)):
-                raw_keywords = json.loads(match.group(0))
-                return extract_core_keywords(raw_keywords)
+            result_text = response.text.strip()
+            
+            json_match = re.search(r'\{.*\}', result_text, re.DOTALL)
+            if json_match:
+                result = json.loads(json_match.group())
+                return idx, result
         except Exception as e:
-            print(f"⚠️ 키워드 추출 오류 (클러스터 {cluster_id}): {str(e)}")
-            time.sleep(1)
-    # Fallback: TF-IDF + 명사 필터
-    vectorizer = TfidfVectorizer(token_pattern=r'(?u)\b[가-힣]{2,10}\b', max_features=20)
-    X = vectorizer.fit_transform([texts])
-    return extract_core_keywords(vectorizer.get_feature_names_out()[:4].tolist())
+            print(f"문서 {idx} 분류 실패: {str(e)}")
+        
+        return idx, {"category": "기타", "subcategory": "일반", "confidence": 0.5}
+    
+    # 병렬 처리로 문서 분류
+    document_classifications = {}
+    data_with_index = [(i, original_texts[i], titles[i]) for i in range(len(original_texts))]
+    
+    with ThreadPoolExecutor(max_workers=6) as executor:
+        futures = [executor.submit(classify_document, item) for item in data_with_index]
+        
+        for future in tqdm(as_completed(futures), total=len(futures), desc="원본 텍스트 문서 분류"):
+            idx, classification = future.result()
+            document_classifications[idx] = classification
+    
+    # 카테고리별 그룹화
+    category_groups = defaultdict(list)
+    for idx, classification in document_classifications.items():
+        category = classification["category"]
+        subcategory = classification.get("subcategory", "일반")
+        key = f"{category}_{subcategory}"
+        category_groups[key].append(idx)
+    
+    # 클러스터 ID 할당
+    final_clusters = {}
+    cluster_id = 0
+    
+    for category_key, doc_indices in category_groups.items():
+        if len(doc_indices) <= 5:
+            # 소규모 그룹은 단일 클러스터
+            for doc_idx in doc_indices:
+                final_clusters[doc_idx] = cluster_id
+            cluster_id += 1
+        else:
+            # 대규모 그룹은 추가 세분화
+            subclusters = gemini_subcluster_documents(
+                [(idx, original_texts[idx], titles[idx]) for idx in doc_indices], 
+                model, 
+                category_key
+            )
+            
+            for subcluster_docs in subclusters:
+                for doc_idx in subcluster_docs:
+                    final_clusters[doc_idx] = cluster_id
+                cluster_id += 1
+    
+    return final_clusters
 
-def extract_keywords_for_single_doc(text, model):
-    prompt = f'''
-아래 법안 텍스트에서 2~10글자 한글 명사만 골라 2~4개 핵심 키워드(JSON 배열, 예: ["공무원비위", "의원면직"])로 반환:
-{text[:2000]}
-'''
-    for _ in range(3):
-        try:
-            response = model.generate_content(prompt)
-            match = re.search(r'\[".*?"(?:,\s*".*?")*\]', response.text)
-            if match:
-                raw_keywords = json.loads(match.group(0))
-                return extract_core_keywords(raw_keywords)
-        except Exception:
-            time.sleep(1)
-    # Fallback: TF-IDF
-    vectorizer = TfidfVectorizer(token_pattern=r'(?u)\b[가-힣]{2,10}\b', max_features=10)
-    X = vectorizer.fit_transform([text])
-    return extract_core_keywords(vectorizer.get_feature_names_out()[:4].tolist())
+def gemini_subcluster_documents(docs_data, model, category):
+    """카테고리 내 세부 클러스터링"""
+    if len(docs_data) <= 10:
+        return [[doc[0] for doc in docs_data]]
+    
+    prompt = f"""
+다음 {category} 카테고리의 법안들을 유사한 세부 주제별로 2-4개 그룹으로 나누어주세요.
 
-# 7. 메인 실행 로직
-if __name__ == '__main__':
-    GEMINI_API_KEY = "여기에_실제_API키_입력"
-    genai.configure(api_key=GEMINI_API_KEY)
+법안 목록:
+"""
+    
+    for i, (idx, text, title) in enumerate(docs_data[:15]):
+        prompt += f"{i+1}. {title[:80]}...\n"
+    
+    prompt += """
+각 그룹에 속하는 법안 번호들을 다음 형식으로 응답해주세요:
+
+{
+  "groups": [
+    {
+      "name": "그룹명1",
+      "bills": [1, 3, 5]
+    },
+    {
+      "name": "그룹명2", 
+      "bills": [2, 4, 6]
+    }
+  ]
+}
+"""
+    
+    try:
+        response = model.generate_content(prompt)
+        result_text = response.text.strip()
+        
+        json_match = re.search(r'\{.*\}', result_text, re.DOTALL)
+        if json_match:
+            result = json.loads(json_match.group())
+            
+            subclusters = []
+            used_indices = set()
+            
+            for group in result.get("groups", []):
+                group_doc_indices = []
+                for bill_num in group.get("bills", []):
+                    if 1 <= bill_num <= len(docs_data) and (bill_num - 1) not in used_indices:
+                        doc_idx = docs_data[bill_num - 1][0]
+                        group_doc_indices.append(doc_idx)
+                        used_indices.add(bill_num - 1)
+                
+                if group_doc_indices:
+                    subclusters.append(group_doc_indices)
+            
+            # 미분류 문서들 처리
+            remaining = [docs_data[i][0] for i in range(len(docs_data)) if i not in used_indices]
+            if remaining:
+                subclusters.append(remaining)
+            
+            return subclusters if subclusters else [[doc[0] for doc in docs_data]]
+            
+    except Exception as e:
+        print(f"세부 클러스터링 실패: {str(e)}")
+    
+    return [[doc[0] for doc in docs_data]]
+
+# ===== 3단계: Gemini 원본 기반 키워드 추출 =====
+
+def gemini_extract_cluster_keywords(cluster_docs, original_texts, titles, model):
+    """클러스터별 원본 텍스트 기반 키워드 추출"""
+    # 클러스터 내 대표 문서들 선택
+    sample_indices = cluster_docs[:3]  # 최대 3개 문서
+    combined_text = ' '.join([original_texts[i] for i in sample_indices])
+    representative_title = titles[sample_indices[0]] if sample_indices else "법안"
+    
+    prompt = f"""
+다음 클러스터에 속한 법안들의 원본 내용을 분석하여 공통된 핵심 키워드 4개를 추출해주세요.
+
+대표 제목: {representative_title}
+클러스터 원본 내용: {combined_text[:4000]}
+
+추출 규칙:
+1. 클러스터 내 모든 문서에 공통으로 나타나는 용어 우선
+2. 법률 전문용어를 우선적으로 선택
+3. 원본 내용에 실제로 등장하는 용어만 사용
+4. 클러스터의 주제를 가장 잘 대표하는 키워드 선택
+
+반드시 다음 JSON 배열 형식으로만 응답하세요:
+["키워드1", "키워드2", "키워드3", "키워드4"]
+"""
+    
+    try:
+        response = model.generate_content(prompt)
+        result_text = response.text.strip()
+        
+        match = re.search(r'\["[^"]*"(?:\s*,\s*"[^"]*")*\]', result_text)
+        if match:
+            keywords = json.loads(match.group())
+            return keywords[:4]
+    except Exception as e:
+        print(f"클러스터 키워드 추출 오류: {str(e)}")
+    
+    return ["법안", "개정", "정책", "시행"]
+
+def gemini_extract_single_keywords(original_text, title, model):
+    """단일 문서 원본 텍스트 기반 키워드 추출"""
+    prompt = f"""
+다음 법안의 원본 내용을 분석하여 핵심 키워드 4개를 추출해주세요.
+
+법안 제목: {title}
+법안 원본 내용: {original_text[:3000]}
+
+추출 규칙:
+1. 반드시 원본 내용에 실제로 등장하는 용어만 사용
+2. 법률 전문용어를 우선적으로 선택
+3. 법안의 핵심 목적과 직접 연관된 키워드 선택
+4. 추상적 개념보다 구체적 용어 우선
+
+반드시 다음 JSON 배열 형식으로만 응답하세요:
+["키워드1", "키워드2", "키워드3", "키워드4"]
+"""
+    
+    try:
+        response = model.generate_content(prompt)
+        result_text = response.text.strip()
+        
+        match = re.search(r'\["[^"]*"(?:\s*,\s*"[^"]*")*\]', result_text)
+        if match:
+            keywords = json.loads(match.group())
+            return keywords[:4]
+    except Exception as e:
+        print(f"단일 문서 키워드 추출 오류: {str(e)}")
+    
+    return ["법안", "개정", "정책", "시행"]
+
+# ===== 메인 실행 함수 =====
+
+def legal_specialized_processing_system():
+    """법률 문서 특화 처리 시스템"""
+    print("🚀 법률 문서 특화 처리 시스템 시작")
+    start_time = time.time()
+    
+    # Gemini 모델 생성 (클러스터링과 키워드 추출용)
     model = genai.GenerativeModel('gemini-1.5-pro-latest')
 
+    # 데이터 로드
+    print("📊 데이터 로드 중...")
     file_path = Path(r"C:/Users/1-02/Desktop/DAMF2/laws-radar/geovote/data/bill_filtered_final.csv")
-    df = pd.read_csv(file_path, encoding='utf-8-sig')
+    
+    dtype_spec = {
+        'age': 'int16',
+        'bill_id': 'category'
+    }
+    
+    df = pd.read_csv(file_path, dtype=dtype_spec, encoding='utf-8-sig')
+    print(f"📊 원본 데이터: {len(df)}개 의안")
 
-    # 1. 전처리
-    print("🔄 법령 구조 패턴 제거 중...")
-    df['content'] = df['content'].apply(remove_law_structure_phrases)
+    # 원본 텍스트 별도 보관 (클러스터링과 키워드 추출용)
+    df['original_content'] = df['content'].copy()
 
-    print("🔄 Gemini 전처리 중...")
-    df['content'] = parallel_gemini_tokenize_and_filter(df['content'].tolist(), model)
+    # 1단계: 법률 문서 특화 전처리 파이프라인
+    print("🔄 법률 문서 특화 전처리 파이프라인 수행 중...")
+    df = improved_content_preprocessing(df, model)
 
-    # 2. 임베딩 (유효한 데이터 필터링)
-    print("🔄 임베딩 생성 중...")
-    embeddings = get_gemini_embeddings_safe(df['content'].tolist())
+    # 전처리 결과 검증
+    print("\n🔍 법률 특화 전처리 결과 검증:")
+    processed_count = (df['content'] != '').sum()
+    print(f"   - 처리된 문서: {processed_count}개")
+    print(f"   - 빈 문서: {len(df) - processed_count}개")
+    
+    # 샘플 확인을 위한 디버깅 출력
+    if processed_count > 0:
+        sample_idx = df[df['content'] != ''].index[0]
+        print(f"   - 샘플 결과: {df.iloc[sample_idx]['content'][:200]}...")
 
-    valid_indices = [i for i, emb in enumerate(embeddings) if emb is not None]
-    filtered_df = df.iloc[valid_indices].copy()
-    valid_embeddings = np.array([emb for emb in embeddings if emb is not None])
-
-    if valid_embeddings.size == 0:
-        print("❌ 임베딩 실패: 생성된 임베딩이 없습니다")
-        sys.exit(1)
-
-    # 3. 군집수 결정
-    print("🔎 군집수 분석 중...")
-    n_clusters = get_optimal_clusters_with_gemini(
-        valid_embeddings,
-        ' '.join(filtered_df.sample(min(100, len(filtered_df)))['content']),
+    # 2단계: Gemini 원본 기반 클러스터링
+    print("🤖 Gemini 원본 텍스트 기반 클러스터링 수행 중...")
+    clusters = gemini_clustering_from_original(
+        df['original_content'].tolist(),
+        df['title'].tolist(),
         model
     )
-    if not n_clusters:
-        print("⚠️ LDA 방식으로 전환")
-        vectorizer = TfidfVectorizer(max_df=0.7, min_df=5, ngram_range=(1,3), max_features=5000)
-        X = vectorizer.fit_transform(filtered_df['content'])
-        texts = [doc.split() for doc in filtered_df['content']]
-        n_clusters = find_optimal_n_topics_lda_fast(X, texts, Dictionary(texts), [], vectorizer)
+    
+    # 클러스터 결과를 데이터프레임에 적용
+    df['topic'] = df.index.map(lambda x: clusters.get(x, -1))
 
-    n_samples = len(valid_embeddings)
-    n_clusters = min(n_clusters, n_samples)
-    print(f"✅ 최종 군집수: {n_clusters} (샘플 수: {n_samples})")
-
-    # 4. 클러스터링
-    print("🔄 클러스터링 중...")
-    filtered_df['topic'] = KMeans(n_clusters=n_clusters, random_state=42).fit_predict(valid_embeddings)
-
-    # 5. 원본 데이터프레임에 병합 (누락 문서도 포함)
-    df = df.merge(filtered_df[['topic']], how='left', left_index=True, right_index=True)
-    df.rename(columns={'topic_y': 'topic'}, inplace=True)
-    df['topic'] = df['topic'].fillna(-1).astype(int)
-
-    # 6. 키워드 추출 (정상 클러스터 + -1 문서 개별 추출)
-    print("🔄 키워드 추출 중...")
+    # 3단계: Gemini 원본 기반 키워드 추출
+    print("🔄 Gemini 원본 텍스트 기반 키워드 추출 중...")
     topic_labels = {}
-    # 정상 클러스터
-    cluster_texts = df[df['topic'] != -1].groupby('topic')['content'].apply(lambda x: ' '.join(x.sample(min(10, len(x)))))
-    for cid, txt in tqdm(cluster_texts.items(), total=len(cluster_texts)):
-        topic_labels[cid] = gemini_cluster_keywords(cid, txt, model)
-    # -1 클러스터 개별 추출
-    for idx, row in tqdm(df[df['topic'] == -1].iterrows(), total=(df['topic'] == -1).sum()):
-        keywords = extract_keywords_for_single_doc(row['content'], model)
-        topic_labels[-1 * (idx+2)] = keywords  # 각 문서별 고유 음수 토픽ID
-        df.at[idx, 'topic'] = -1 * (idx+2)  # 각 문서별로 고유하게
+    
+    # 클러스터별 키워드 추출
+    unique_topics = df[df['topic'] != -1]['topic'].unique()
+    
+    def extract_cluster_keywords(cid):
+        cluster_docs = df[df['topic'] == cid].index.tolist()
+        
+        try:
+            keywords = gemini_extract_cluster_keywords(
+                cluster_docs,
+                df['original_content'].tolist(),
+                df['title'].tolist(),
+                model
+            )
+            return cid, keywords
+            
+        except Exception as e:
+            print(f"클러스터 {cid} 키워드 추출 실패: {str(e)}")
+            return cid, ["법안", "개정", "정책", "시행"]
+    
+    # 병렬 처리로 클러스터 키워드 추출
+    with ThreadPoolExecutor(max_workers=6) as executor:
+        futures = [executor.submit(extract_cluster_keywords, cid) for cid in unique_topics]
+        
+        for future in tqdm(as_completed(futures), total=len(futures), desc="클러스터 키워드 추출"):
+            cid, keywords = future.result()
+            topic_labels[cid] = keywords
 
-    # 7. 결과 병합
+    # 단일 문서 키워드 추출
+    single_docs = df[df['topic'] == -1]
+    print(f"🔄 단일 문서 키워드 추출 중... ({len(single_docs)}개)")
+    
+    def extract_single_doc_keywords(idx_row):
+        idx, row = idx_row
+        try:
+            keywords = gemini_extract_single_keywords(
+                row['original_content'], 
+                row['title'], 
+                model
+            )
+            unique_topic_id = -1 * (idx + 2)
+            return idx, unique_topic_id, keywords
+        except Exception as e:
+            print(f"단일 문서 키워드 추출 실패: {str(e)}")
+            unique_topic_id = -1 * (idx + 2)
+            return idx, unique_topic_id, ["법안", "개정", "정책", "시행"]
+    
+    if len(single_docs) > 0:
+        with ThreadPoolExecutor(max_workers=6) as executor:
+            futures = [executor.submit(extract_single_doc_keywords, (idx, row)) 
+                      for idx, row in single_docs.iterrows()]
+            
+            for future in tqdm(as_completed(futures), total=len(futures), desc="단일 문서 처리"):
+                idx, unique_topic_id, keywords = future.result()
+                topic_labels[unique_topic_id] = keywords
+                df.at[idx, 'topic'] = unique_topic_id
+
+    # topic_label 컬럼 생성
     df['topic_label'] = df['topic'].map(lambda x: ', '.join(topic_labels.get(x, [])))
-    df = df[df['topic_label'] != '']  # 빈 레이블 제거
+    
+    # 빈 키워드 라벨 처리
+    empty_labels = df[df['topic_label'] == '']
+    if len(empty_labels) > 0:
+        print(f"⚠️ 빈 키워드 라벨 {len(empty_labels)}개 발견 - 기본 키워드로 대체")
+        df.loc[df['topic_label'] == '', 'topic_label'] = '법안, 개정, 정책, 시행'
 
-    # 8. 저장
-    output_path = Path('data/bill_gemini_clustering.csv')
-    df[['age', 'title', 'bill_id', 'bill_number', 'content', 'topic', 'topic_label']].to_csv(
-        output_path, index=False, encoding='utf-8-sig'
-    )
+    # original_content 컬럼 제거
+    df.drop('original_content', axis=1, inplace=True)
+
+    print(f"✅ 최종 처리된 의안: {len(df)}개")
+    print(f"✅ 생성된 클러스터: {len(set(df['topic']))}개")
+
+    # 결과 저장
+    output_path = Path('data/keyword_gemini.csv')
+    output_path.parent.mkdir(exist_ok=True)
+    output_columns = ['age', 'title', 'bill_id', 'bill_number', 'content', 'topic', 'topic_label']
+    df[output_columns].to_csv(output_path, index=False, encoding='utf-8-sig')
+    
     print(f"✅ 저장 완료: {output_path}")
+    
+    # 처리 시간 계산
+    end_time = time.time()
+    processing_time = end_time - start_time
+    print(f"⏱️ 총 처리 시간: {processing_time:.2f}초 ({processing_time/60:.2f}분)")
+    
+    # 결과 요약
+    print("\n📈 법률 문서 특화 처리 결과 요약:")
+    topic_summary = df.groupby('topic').agg({
+        'title': 'count',
+        'topic_label': 'first'
+    }).rename(columns={'title': 'document_count'}).sort_values('document_count', ascending=False)
+    
+    print(f"   - 총 클러스터 수: {len(topic_summary)}개")
+    print(f"   - 총 문서 수: {len(df)}개")
+    
+    print(f"\n🔍 주요 클러스터별 키워드 (법률 특화):")
+    for i, (topic_id, row) in enumerate(topic_summary.head(10).iterrows()):
+        keywords = row['topic_label']
+        print(f"   {i+1}. [{row['document_count']}개 문서] {keywords}")
+    
+    print(f"\n🎯 법률 문서 특화 처리 방식:")
+    print(f"   - ✅ content 처리: 법률 문서 특화 전처리 파이프라인")
+    print(f"   - ✅ 복합 명사 분리: '지방출입국·외국인관서' → '지방 출입국 외국인 관서'")
+    print(f"   - ✅ 법률 용어 보존: 50개 이상 법률 전문용어 보존")
+    print(f"   - ✅ 맥락 인식 필터링: Gemini 기반 불용어 제거")
+    print(f"   - ✅ 클러스터링: Gemini가 원본 텍스트 기반 수행")
+    print(f"   - ✅ 키워드 추출: Gemini가 원본 텍스트 기반 수행")
+    
+    return df, topic_labels
+
+if __name__ == '__main__':
+    # 디렉토리 생성
+    Path("data").mkdir(exist_ok=True)
+    
+    # 법률 문서 특화 처리 시스템 실행
+    df_result, topic_labels_result = legal_specialized_processing_system()

@@ -7,7 +7,8 @@ import settings
 import datetime
 
 card_path = settings.BASE_DIR / 'geovote' / 'data' / 'card_news_output.csv'
-bill_path = settings.BASE_DIR / 'geovote' / 'data' / 'merged_bill_data_labeled.csv'
+bill_path = settings.BASE_DIR / 'geovote' / 'data' / 'urls.csv'
+
 
 bill_df = pd.read_csv(bill_path)
 

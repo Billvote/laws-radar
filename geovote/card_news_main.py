@@ -1,8 +1,8 @@
+import os
 import pandas as pd
 import google.generativeai as genai
 import time
 import logging
-from typing import List, Optional
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -21,24 +21,25 @@ class CardNewsConverter:
         except Exception as e:
             logger.error(f"❌ API 설정 실패: {e}")
             raise
-    
-    def _create_optimized_prompt(self, content: str) -> str:
-        """최적화된 프롬프트 - 하나의 문구만 생성"""
-        return f"""
-다음 법률/정책 내용을 카드뉴스용 문구로 변환해주세요.
 
-요구사항:
-- 20자 이내
-- 시민 친화적 표현
-- 혜택이나 개선사항 강조
-- 하나의 문구만 출력
+    def _create_optimized_prompt(self, content: str) -> str:
+        # 예시 답변을 포함한 프롬프트로 개선
+        return f"""
+아래의 법률/정책 내용을 카드뉴스용 한 줄 메시지(20자 내외, 시민 친화적, 혜택·개선 강조, 느낌표 등 감탄사 포함)로 바꿔주세요.
+
+예시:
+1. 조합 임원, 벌금형 분리 선고로 공정성 UP!
+2. 우리 아이들의 안전을 위해! 어린이공원 교통안전 강화!
+3. 형사처벌 공정성 확보! 벌금형 기준 현실화!
+4. 한국마사회, 농업인 위한 공간으로 변신!
+5. 경우회 목적 및 운영 투명성 강화!
 
 변환할 내용: {content}
 
-최적화된 문구:"""
+카드뉴스 문구:
+"""
 
     def convert_single(self, content: str, retry_count: int = 3) -> str:
-        """단일 내용 변환"""
         if not content or pd.isna(content):
             return "내용 없음"
         
@@ -49,20 +50,20 @@ class CardNewsConverter:
                 response = self.model.generate_content(
                     prompt,
                     generation_config=genai.types.GenerationConfig(
-                        temperature=0.5,
-                        max_output_tokens=50,
-                        top_p=0.8,
+                        temperature=0.9,  # 더 창의적으로
+                        max_output_tokens=100,  # 충분히 길게
+                        top_p=1.0,
                     )
                 )
                 
                 if response and response.text:
                     result = response.text.strip()
-                    # 불필요한 텍스트 제거
-                    result = result.replace("**", "").replace("옵션", "").replace("선택", "")
-                    result = result.split('\n')[0]  # 첫 번째 줄만 사용
-                    result = result.split('**')[0]  # ** 이전 텍스트만 사용
-                    
-                    if len(result) > 5 and len(result) <= 25:
+                    # 불필요한 **, 번호, "카드뉴스 문구:" 등만 제거
+                    result = result.replace("**", "").replace("카드뉴스 문구:", "").strip()
+                    # 2줄 이상이면 첫 줄만 사용
+                    result = result.split('\n')[0].strip()
+                    # 너무 짧거나 길면 재시도
+                    if 7 <= len(result) <= 35:
                         logger.info(f"✅ 변환 성공: {result}")
                         return result
                 
@@ -73,28 +74,13 @@ class CardNewsConverter:
                 if attempt < retry_count - 1:
                     time.sleep(2)
         
-        # 실패시 수동 변환
         return self._manual_convert(content)
     
     def _manual_convert(self, content: str) -> str:
-        """API 실패시 수동 변환"""
-        content = str(content)
-        
-        if "입국 불허" in content:
-            return "안전한 대한민국, 확실하게 지켜요!"
-        elif "조합 임원" in content and "벌금형" in content:
-            return "조합 임원 처벌 강화로 공정성 UP"
-        elif "공직선거법" in content and "방송광고" in content:
-            return "깨끗한 선거, 투명한 방송광고!"
-        elif "법적 근거" in content:
-            return "법적 기반 마련으로 제도 개선"
-        elif "강화" in content:
-            return "보안 강화로 더 안전하게!"
-        else:
-            return "제도 개선으로 더 나은 사회!"
+        # 필요시 직접 작성
+        return "더 나은 사회를 위한 변화!"
 
     def test_api_connection(self):
-        """API 연결 테스트"""
         try:
             test_response = self.model.generate_content("테스트")
             if test_response and test_response.text:
@@ -108,7 +94,6 @@ class CardNewsConverter:
             return False
 
     def process_csv(self, input_path: str, output_path: str, delay: float = 1.5):
-        """CSV 파일 처리"""
         try:
             if not self.test_api_connection():
                 raise Exception("API 연결에 문제가 있습니다.")
@@ -149,8 +134,9 @@ class CardNewsConverter:
 if __name__ == "__main__":
     API_KEY = "AIzaSyA8M00iSzCK1Lvc5YfxamYgQf-Lh4xh5R0"
     
-    INPUT_FILE = r"C:\Users\1-02\Desktop\DAMF2\laws-radar\geovote\data\summary_of_content_short.csv"
-    OUTPUT_FILE = r"C:\Users\1-02\Desktop\DAMF2\laws-radar\geovote\data\card_news_output.csv"
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    INPUT_FILE = os.path.join(BASE_DIR, "data", "summary_of_content_short.csv")
+    OUTPUT_FILE = os.path.join(BASE_DIR, "data", "card_news_output.csv")
     
     try:
         print("🎯 카드뉴스 변환기 시작")

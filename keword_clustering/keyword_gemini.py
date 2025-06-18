@@ -14,6 +14,8 @@ import json
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections import Counter, defaultdict
+import os
+from dotenv import load_dotenv
 
 tqdm.pandas()
 
@@ -79,8 +81,13 @@ preserve_terms = frozenset({
 
 excluded_bigrams = frozenset({'교육 실시', '징역 벌금', '수립 시행', '운영 관리'})
 
-# Gemini API 키 설정
-GEMINI_API_KEY = "AIzaSyA8M00iSzCK1Lvc5YfxamYgQf-Lh4xh5R0"
+# 환경 변수에서 API 키 로드
+load_dotenv()  # .env 파일에서 환경 변수 로드
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
+if not GEMINI_API_KEY:
+    raise ValueError("GEMINI_API_KEY not found in .env file")
+
 genai.configure(api_key=GEMINI_API_KEY)
 
 # ===== 법률 문서 특화 전처리 함수들 =====

@@ -1,15 +1,25 @@
+# -*- coding: utf-8 -*-
 import os
 import pandas as pd
 import google.generativeai as genai
 import time
 import logging
+from dotenv import load_dotenv
 
+# .env 파일에서 환경 변수 로드
+load_dotenv()
+
+# 로깅 설정
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 class CardNewsConverter:
-    def __init__(self, api_key: str):
-        self.api_key = api_key
+    def __init__(self, api_key: str = None):
+        # API 키를 인자로 받거나 환경 변수에서 로드
+        self.api_key = api_key or os.getenv("GEMINI_API_KEY")
+        if not self.api_key:
+            raise ValueError("API 키가 제공되지 않았습니다. 인자로 전달하거나 .env 파일에 GEMINI_API_KEY를 설정하세요.")
+        
         self.model = None
         self._setup_api()
     
@@ -132,7 +142,8 @@ class CardNewsConverter:
 
 # ===== 메인 실행 =====
 if __name__ == "__main__":
-    API_KEY = "AIzaSyA8M00iSzCK1Lvc5YfxamYgQf-Lh4xh5R0"
+    # 환경 변수에서 API 키 로드 (기본값은 None)
+    API_KEY = os.getenv("GEMINI_API_KEY")
     
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
     INPUT_FILE = os.path.join(BASE_DIR, "data", "summary_of_content_short.csv")
@@ -140,6 +151,10 @@ if __name__ == "__main__":
     
     try:
         print("🎯 카드뉴스 변환기 시작")
+        
+        # API 키가 환경 변수에 없으면 오류 발생
+        if not API_KEY:
+            raise ValueError("GEMINI_API_KEY 환경 변수가 설정되지 않았습니다. .env 파일을 확인하세요.")
         
         converter = CardNewsConverter(API_KEY)
         result_df = converter.process_csv(INPUT_FILE, OUTPUT_FILE)

@@ -1,7 +1,7 @@
 # Created by https://www.toptal.com/developers/gitignore/api/python,django,macos,windows
 # Edit at https://www.toptal.com/developers/gitignore?templates=python,django,macos,windows
 
-run_pipeline/data/
+_07_run_pipeline/data/
 
 ### Django ###
 *.log

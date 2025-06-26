@@ -67,7 +67,7 @@ def fetch_and_save_bill_ids(eraco: str):
         if 'BILL_ID' in row and row.get('PROC_RSLT') in valid_results
     })
 
-    print(f"🔍 조건에 맞는 의안 ID 수: {len(filtered_bill_ids)}")
+    print(f"조건에 맞는 의안 ID 수: {len(filtered_bill_ids)}")
 
     # # CSV 파일 저장 위치
     # OUTPUT_CSV = settings.BASE_DIR / 'save_bill_ids_01' / 'data' / f'passed_bill_ids_{eraco}.csv'

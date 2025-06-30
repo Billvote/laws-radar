@@ -11,7 +11,6 @@ from _01_save_bill_ids.save_bill_ids import fetch_and_save_bill_ids
 from _02_result_vote.result_vote_crawling import collect_vote_data
 from _03_bill_crawling.bill_summary_crawling import crawl_summaries
 from _04_keyword_clustering.keyword_gemini import legal_preprocessing_only
-# from _05_generate_label.label_final import add_label_column
 from _05_generate_summary.summary_of_content import initialize_system, generate_summary, generate_summaries_parallel
 from _06_generate_cardnews.card_news_main import CardNewsConverter
 

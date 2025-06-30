@@ -45,12 +45,12 @@ def fetch_vote_results(bill_id: str, eraco: str) -> list:
         response.raise_for_status()
         return response.json().get('nojepdqqaweusdfbi', [None, {}])[1].get('row', [])
     except Exception as e:
-        print(f"❌ BILL_ID {bill_id} 처리 실패: {e}")
+        print(f"BILL_ID {bill_id} 처리 실패: {e}")
         return []
 
 def collect_vote_data(bill_ids: list, eraco) -> pd.DataFrame:
     # bill_ids = load_bill_ids(input_csv)
-    # print(f"🔍 {len(bill_ids)}개 의안 ID 로딩 완료")
+    # print(f"{len(bill_ids)}개 의안 ID 로딩 완료")
 
     """여러 의안 ID에 대해 표결 결과 수집"""
     all_votes = []
@@ -60,7 +60,7 @@ def collect_vote_data(bill_ids: list, eraco) -> pd.DataFrame:
         time.sleep(random.uniform(0.2, 0.5)) # 요청 사이의 대기시간을 랜덤하게 줄이기
 
     if not all_votes:
-        print("⚠️ 수집된 표결 데이터가 없습니다.")
+        print("수집된 표결 데이터가 없습니다.")
         return pd.DataFrame()
 
     df = pd.DataFrame(all_votes)

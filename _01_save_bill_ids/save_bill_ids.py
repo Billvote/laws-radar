@@ -33,14 +33,14 @@ def fetch_and_save_bill_ids(eraco: str):
     data = response.json()
 
     if 'BILLRCP' not in data:
-        print(f"❌ 응답 오류: 'BILLRCP' 키 없음. 응답 내용:")
+        print(f"응답 오류: 'BILLRCP' 키 없음. 응답 내용:")
         print(data)
         return
 
     try:
         total_count = data['BILLRCP'][0]['head'][0]['list_total_count']
     except (KeyError, IndexError) as e:
-        print(f"❌ 응답 구조 오류: {e}")
+        print(f"응답 구조 오류: {e}")
         return
 
     total_pages = (total_count + 99) // 100
@@ -52,14 +52,14 @@ def fetch_and_save_bill_ids(eraco: str):
         data = response.json()
 
         if 'BILLRCP' not in data or len(data['BILLRCP']) < 2:
-            print(f"⚠️ 페이지 {page}에서 데이터 누락됨")
+            print(f"페이지 {page}에서 데이터 누락됨")
             continue
 
         rows = data['BILLRCP'][1].get('row', [])
         all_bill_rows.extend(rows)
-        print(f"✅ 페이지 {page}: {len(rows)}개 가져옴")
+        print(f"페이지 {page}: {len(rows)}개 가져옴")
 
-    # ✅ 조건에 맞는 의안만 필터링
+    # 조건에 맞는 의안만 필터링
     valid_results = {'수정가결', '원안가결'}
     filtered_bill_ids = list({
         row['BILL_ID']
@@ -80,7 +80,7 @@ def fetch_and_save_bill_ids(eraco: str):
     #     for bill_id in filtered_bill_ids:
     #         writer.writerow([bill_id])
 
-    # print(f"📁 저장 완료: '{OUTPUT_CSV}'")
+    # print(f"저장 완료: '{OUTPUT_CSV}'")
 
     return filtered_bill_ids
 

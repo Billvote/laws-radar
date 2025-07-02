@@ -126,9 +126,9 @@ def run_crawl_and_save(csv_path, output_path):
         lambda x: ' / '.join([str(i) for i in x if pd.notna(i)])
     )
     null_count = result_df['summary'].isna().sum()
-    print(f"\n⚠️ 요소를 찾지 못한 URL 수: {null_count}개")
+    print(f"\n요소를 찾지 못한 URL 수: {null_count}개")
     merged_df.to_csv(output_path, encoding='utf-8-sig', index=False, quoting=csv.QUOTE_NONE, escapechar='\\')
-    print(f"\n✅ 크롤링 및 저장 완료! 파일 위치: {output_path}")
+    print(f"\n크롤링 및 저장 완료! 파일 위치: {output_path}")
 
 # 기존 -----------------------------------------------
 # # 5. 멀티스레드 크롤링 (최대 20개 동시 요청)
@@ -149,9 +149,9 @@ def run_crawl_and_save(csv_path, output_path):
 
 # # 8. NaN 개수 계산
 # null_count = result_df['summary'].isna().sum()
-# print(f"\n⚠️ 요소를 찾지 못한 URL 수: {null_count}개")
+# print(f"\n요소를 찾지 못한 URL 수: {null_count}개")
 
 # # 9. 결과 저장 (큰따옴표 없이)
 # output_path = r'C:/Users/1-02/Desktop/DAMF2/laws-radar/bill_summary/data/bill_summary.csv'
 # merged_df.to_csv(output_path, encoding='utf-8-sig', index=False, quoting=csv.QUOTE_NONE, escapechar='\\')
-# print("\n✅ 크롤링 및 병합 완료! bill_summary.csv 파일이 생성되었습니다.")
+# print("\n크롤링 및 병합 완료! bill_summary.csv 파일이 생성되었습니다.")

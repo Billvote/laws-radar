@@ -519,7 +519,7 @@ def legal_specialized_processing_system(df_input: pd.DataFrame):
 
     # 데이터 로드
     print("📊 데이터 로드 중...")
-    # file_path = settings.BASE_DIR / 'geovote' / 'data' / 'bill_filtered_final.csv'
+    file_path = settings.BASE_DIR / 'geovote' / 'data' / 'bill_filtered_final.csv'
     # file_path = settings.BASE_DIR / 'run_pipeline' / 'data' / 'df_votes_merged(3).csv' # 테스트용
     
     dtype_spec = {
